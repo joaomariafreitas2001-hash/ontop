@@ -1,7 +1,7 @@
 {
   "name": "ontop",
   "productName": "OnTop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A teleprompter that sits under your webcam, follows the words you say, and is invisible to screen sharing.",
   "main": "src/main.js",
   "author": "JRF",
@@ -9,11 +9,12 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/tracker.test.js && node test/markdown.test.js && node test/languages.test.js",
+    "test": "node test/tracker.test.js && node test/markdown.test.js && node test/languages.test.js && node test/voice.test.js",
     "fetch-model": "node scripts/fetch-model.js",
     "smoke": "electron . --smoke",
     "test:track": "electron . --track-test",
     "test:library": "electron . --library-test",
+    "test:setup": "electron . --setup-test",
     "selftest": "electron . --selftest",
     "demo": "electron . --demo-gif",
     "screenshots": "electron . --screenshots",

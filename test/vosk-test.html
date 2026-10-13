@@ -3,31 +3,63 @@
 <head><meta charset="utf-8" /><title>vosk test</title></head>
 <body>
 <script src="../vendor/vosk.js"></script>
+<script src="../src/script.js"></script>
 <script>
-// Feasibility test: load the model through the ontop:// protocol, feed a WAV, print what it hears.
+// Speech benchmark: play test/speech.wav into a model at real-time speed (like a live
+// mic) and measure, for every word, how long after it was spoken it first appears in
+// the recogniser's partial result.
+//   electron . --vosk-test --model=en-us.tar.gz --chunk=100 --grammar=0
 (async () => {
   const t0 = performance.now();
   try {
-    const params = new URLSearchParams(location.search);
-    const model = await Vosk.createModel('ontop://app/models/' + (params.get('model') || 'en-us.tar.gz'));
+    const q = new URLSearchParams(location.search);
+    const chunkMs = Number(q.get('chunk') || 100);
+    const useGrammar = q.get('grammar') === '1';
+    const model = await Vosk.createModel('ontop://app/models/' + (q.get('model') || 'en-us.tar.gz'), -1);
     console.log('MODEL_LOADED ms=' + Math.round(performance.now() - t0));
     const buf = await (await fetch('ontop://app/test/speech.wav')).arrayBuffer();
     const ctx = new AudioContext({ sampleRate: 16000 });
-    const audio = await ctx.decodeAudioData(buf);
-    const data = audio.getChannelData(0);
-    const rec = new model.KaldiRecognizer(16000);
-    let partials = 0;
-    let lastPartial = '';
-    rec.on('partialresult', (m) => { if (m.result.partial) { partials++; if (partials % 10 === 0) console.log('PARTIAL ' + m.result.partial); } });
-    rec.on('result', (m) => console.log('RESULT ' + m.result.text));
-    const chunk = 1600; // 100 ms
+    const data = (await ctx.decodeAudioData(buf)).getChannelData(0);
+
+    let grammar;
+    if (useGrammar) {
+      const script = await (await fetch('ontop://app/test/fixture-script.txt')).text();
+      const vocab = [...new Set(OnTopScript.units(script, 'en').map((u) => u.u))];
+      grammar = JSON.stringify([...vocab, '[unk]']);
+    }
+    const rec = grammar ? new model.KaldiRecognizer(16000, grammar) : new model.KaldiRecognizer(16000);
+    rec.setWords(true);
+
+    // Wall-clock time at which each cumulative word count was first seen in a partial.
+    const firstSeen = [];
+    let doneWords = 0;
+    const words = []; // final words with audio end times
+    rec.on('partialresult', (m) => {
+      const n = doneWords + (m.result.partial ? m.result.partial.split(' ').length : 0);
+      for (let k = firstSeen.length; k < n; k++) firstSeen[k] = performance.now();
+    });
+    rec.on('result', (m) => {
+      const r = m.result.result || [];
+      for (const w of r) words.push(w);
+      for (let k = firstSeen.length; k < doneWords + r.length; k++) firstSeen[k] = performance.now();
+      doneWords += r.length;
+    });
+
+    const chunk = Math.round(16000 * chunkMs / 1000);
+    const start = performance.now();
     for (let i = 0; i < data.length; i += chunk) {
       rec.acceptWaveformFloat(data.slice(i, i + chunk), 16000);
-      await new Promise((r) => setTimeout(r, 40));
+      const due = start + ((i + chunk) / 16000) * 1000;
+      await new Promise((r) => setTimeout(r, Math.max(0, due - performance.now())));
     }
     rec.retrieveFinalResult();
-    await new Promise((r) => setTimeout(r, 15000));
-    console.log('PARTIALS ' + partials);
+    await new Promise((r) => setTimeout(r, 4000));
+
+    // Lag = when the word was first shown minus when it finished in the audio.
+    const lags = words.map((w, k) => firstSeen[k] - (start + w.end * 1000)).filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+    const pct = (p) => Math.round(lags[Math.min(lags.length - 1, Math.floor(lags.length * p))]);
+    console.log('TEXT ' + words.map((w) => w.word).join(' '));
+    console.log(`LAG_MS words=${lags.length} median=${pct(0.5)} p90=${pct(0.9)} max=${pct(1)}`);
     console.log('DONE');
   } catch (e) {
     console.log('ERROR ' + (e && e.stack || e));

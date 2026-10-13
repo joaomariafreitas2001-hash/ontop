@@ -20,6 +20,8 @@ Everything runs on your computer. Speech recognition is offline and no audio lea
 ## Features
 
 - **Follows your words.** Offline speech recognition (Vosk) matches what you say against the script. Pause and it waits. Go off-script and it waits. Restart a sentence and it goes back. Skip a paragraph and it catches up.
+- **Live, with almost no lag.** The recogniser only listens for the words in your script, so a word typically shows up about 0.1 s after you say it. If you stumble over a word it keeps moving with you, and the next recognised word puts it back on the exact spot.
+- **Learns your voice.** A one-minute *Voice setup* measures your room and your voice, your speaking pace, and how the recogniser hears the names and acronyms in your script. If it hears *Northwind* as "north wind", that now counts as Northwind.
 - **English, Portuguese and Spanish.** English is built in; Portuguese (31 MB) and Spanish (38 MB) download from the Vosk project the first time you pick them.
 - **Invisible to screen share.** Both windows are excluded from screen capture (Teams, Zoom, Meet, OBS, recordings).
 - **Stays out of the way.** The overlay is always on top, click-through when locked, and the text you have already read fades back.
@@ -85,6 +87,7 @@ Markdown imports convert automatically: `#` is the script name, `##` to `######`
 |---|---|
 | Overlay | Electron window: transparent, frameless, always on top, `setIgnoreMouseEvents` when locked |
 | Hidden from capture | `setContentProtection(true)`, which is `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` on Windows |
+| Lag | The recogniser gets a grammar of the script's words plus `[unk]`: on the test recording the median delay from a spoken word to its recognition fell from about 250 ms to 100 ms. Audio is captured at 16 kHz in 64 ms chunks |
 | Speech | [vosk-browser](https://github.com/ccoreilly/vosk-browser) (WebAssembly) with the small Vosk models (English bundled; Portuguese and Spanish downloaded on demand into `%APPDATA%\OnTop\models`), fed from the microphone |
 | Following | `src/tracker.js`: the last eight recognised words are aligned against a window of the script (Smith-Waterman with fuzzy word matching). Small moves need two solid matches; jumping back or far ahead needs stronger evidence. Numbers are spelled out per language ("12%" → "twelve percent", "doze por cento", "doce por ciento") |
 | Library | Settings and scripts in `%APPDATA%\OnTop\settings.json`; linked files are watched and re-imported on change |
@@ -101,9 +104,10 @@ npm start
 
 | Command | What it does |
 |---|---|
-| `npm test` | Unit tests: tracker, Markdown importer, Portuguese and Spanish |
+| `npm test` | Unit tests: tracker, Markdown importer, Portuguese and Spanish, Voice setup |
 | `npm run test:track` | Plays `test/speech.wav` into the app and checks the tracker follows it (make the WAV with `powershell -File test/make-speech.ps1`) |
 | `npm run test:library` | Links a temporary note, edits it, checks the script updates |
+| `npm run test:setup` | Runs Voice setup end to end on recorded phrases and checks what it learns |
 | `npm run smoke` | Opens both windows and writes screenshots to `smoke/` |
 | `npm run dist` | Builds the Windows installer into `dist/` (`npm run dist:mac` on a Mac) |
 | `npm run demo` | Re-records `docs/demo.gif` from the test speech |

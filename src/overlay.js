@@ -58,7 +58,9 @@ function render() {
   textEl.innerHTML = html;
   wordEls = [...textEl.querySelectorAll('.w')];
   readUpTo = -1;
-  tracker = new window.OnTopTracker(script, settings.language || 'en');
+  tracker = new window.OnTopTracker(script, settings.language || 'en', learnedAliases());
+  coast.words = 0;
+  ensureRecognizer();
   measure();
 }
 
@@ -110,6 +112,12 @@ function markRead(upTo) {
 
 // --- speech recognition (word tracking) -----------------------------------
 
+// Pronunciations learned in Voice setup, for the current language.
+function learnedAliases() {
+  const v = settings && settings.voice;
+  return (v && v.aliases && v.aliases[settings.language || 'en']) || {};
+}
+
 let tracker = null;
 const speech = { model: null, rec: null, recRate: 0, status: 'idle', error: null, heard: '', lastMatch: 0 };
 
@@ -145,23 +153,136 @@ function loadModel() {
   return modelPromise;
 }
 
-function ensureRecognizer() {
-  if (!speech.model || !mic.ctx) return;
-  if (speech.rec && speech.recRate === mic.ctx.sampleRate) return;
-  if (speech.rec) speech.rec.remove();
-  const rec = new speech.model.KaldiRecognizer(mic.ctx.sampleRate);
+// The recogniser only listens for the words in the script (plus "[unk]" for anything
+// else). Measured on test/speech.wav: median lag from a word being spoken to it being
+// recognised drops from ~250 ms to ~100 ms, and script words are recognised more reliably.
+function scriptGrammar() {
+  const vocab = new Set(tracker ? tracker.units.map((u) => u.u) : []);
+  return JSON.stringify([...vocab, '[unk]']);
+}
+
+function makeRecognizer(rate) {
+  const rec = new speech.model.KaldiRecognizer(rate, scriptGrammar());
   rec.on('partialresult', (m) => onHeard({ partial: m.result.partial }));
   rec.on('result', (m) => onHeard({ final: m.result.text }));
-  speech.rec = rec;
-  speech.recRate = mic.ctx.sampleRate;
+  return rec;
+}
+
+function ensureRecognizer() {
+  if (!speech.model || !mic.ctx) return;
+  const key = mic.ctx.sampleRate + '|' + scriptGrammar();
+  if (speech.rec && speech.recKey === key) return;
+  if (speech.rec) speech.rec.remove();
+  speech.rec = makeRecognizer(mic.ctx.sampleRate);
+  speech.recKey = key;
 }
 
 function onHeard(msg) {
   const text = msg.final != null ? msg.final : msg.partial;
-  if (text) speech.heard = text.split(' ').slice(-8).join(' ');
+  if (text) speech.heard = text.replace(/\[unk\]/g, '…').split(' ').slice(-8).join(' ');
   if (!playing || settings.mode !== 'track' || manualJump) return;
   const w = tracker.hear(msg);
-  if (w !== null) speech.lastMatch = performance.now();
+  if (w !== null) { speech.lastMatch = performance.now(); coast.words = 0; }
+}
+
+// Coasting: if you keep talking but the last few words weren't recognised (a
+// mispronounced word, a name the model doesn't know), keep moving at your pace for a
+// few words instead of freezing. The next recognised word puts it back on the exact spot.
+// Silence stops it, it only covers short gaps (a longer stretch of unrecognised speech is
+// an aside, not a stumble), and it never runs more than COAST_MAX words ahead.
+const COAST_DELAY_MS = 600;
+const COAST_WINDOW_MS = 2000;
+const COAST_MAX = 4;
+const coast = { words: 0, shown: -1 };
+
+// --- voice setup ----------------------------------------------------------
+// The editor runs the steps; this side listens. "noise" measures 3 s of silence,
+// "listen" transcribes one phrase with the full vocabulary (no script grammar), so the
+// editor can see exactly how the model hears this person.
+
+const setup = { mode: null, levels: [], rec: null, test: null };
+const setupEvent = (e) => window.ontop.send('setup:event', e);
+
+async function setupBegin() {
+  await loadModel();
+  if (!setup.test) await startMic();
+  if (!speech.model || (!mic.ctx && !setup.test)) return setupEvent({ type: 'error', message: speech.error || mic.error || 'Microphone unavailable' });
+  setupEvent({ type: 'ready' });
+}
+
+// Test hook: { s0: url, w0: url, ... } plays recordings instead of the mic.
+async function feedSetupAudio(url, rec) {
+  const ctx = new AudioContext({ sampleRate: 16000 });
+  const data = (await ctx.decodeAudioData(await (await fetch(url)).arrayBuffer())).getChannelData(0);
+  const silence = new Float32Array(16000 * 1.5); // let the recogniser hear the end of the phrase
+  const all = new Float32Array(data.length + silence.length);
+  all.set(data);
+  for (let i = 0; i < all.length && setup.rec === rec; i += 1600) {
+    const part = all.slice(i, i + 1600);
+    rec.acceptWaveformFloat(part, 16000);
+    let sum = 0;
+    for (let k = 0; k < part.length; k++) sum += part[k] * part[k];
+    mic.level = Math.sqrt(sum / part.length);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  mic.level = 0;
+}
+
+function setupNoise() {
+  setup.levels = [];
+  setup.mode = 'noise';
+  if (setup.test) mic.level = 0.002;
+  kick();
+  setTimeout(() => {
+    setup.mode = null;
+    const s = setup.levels.slice().sort((a, b) => a - b);
+    setupEvent({ type: 'noise', noise: s.length ? s[Math.floor(s.length * 0.9)] : 0 });
+  }, 3000);
+}
+
+function setupListen(id) {
+  setupStopListening();
+  const rec = new speech.model.KaldiRecognizer(mic.ctx ? mic.ctx.sampleRate : 16000);
+  rec.setWords(true);
+  setup.rec = rec;
+  setup.levels = [];
+  setup.mode = 'speech';
+  kick();
+  const heard = [];
+  let finishTimer = null;
+  const finish = () => {
+    if (setup.rec !== rec) return;
+    clearTimeout(timeout);
+    setupStopListening();
+    // Speaking level: the louder half of the samples, so pauses don't drag it down.
+    const s = setup.levels.slice().sort((a, b) => a - b);
+    const loud = s.slice(Math.floor(s.length / 2));
+    const level = loud.length ? loud[Math.floor(loud.length / 2)] : 0;
+    setupEvent({ type: 'heard', id, text: heard.map((w) => w.word).join(' '), words: heard, level });
+  };
+  rec.on('partialresult', (m) => {
+    if (!m.result.partial) return;
+    clearTimeout(finishTimer);
+    setupEvent({ type: 'partial', id, text: [...heard.map((w) => w.word), m.result.partial].join(' ') });
+  });
+  rec.on('result', (m) => {
+    heard.push(...(m.result.result || []));
+    // A short pause can end a result early; finish only after a moment of silence.
+    clearTimeout(finishTimer);
+    if (heard.length) finishTimer = setTimeout(finish, 1100);
+  });
+  const timeout = setTimeout(() => { rec.retrieveFinalResult(); setTimeout(finish, 900); }, 10000);
+  if (setup.test && setup.test[id]) feedSetupAudio(setup.test[id], rec);
+}
+
+function setupStopListening() {
+  setup.mode = null;
+  if (setup.rec) { setup.rec.remove(); setup.rec = null; }
+}
+
+function setupEnd() {
+  setupStopListening();
+  if (!needsMic()) stopMic();
 }
 
 // --- microphone -----------------------------------------------------------
@@ -176,15 +297,17 @@ async function startMic() {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
-    const ctx = new AudioContext();
+    // 16 kHz is the rate the speech models use: a third of the data of a 48 kHz mic.
+    const ctx = new AudioContext({ sampleRate: 16000 });
     const src = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
     src.connect(analyser);
     // Raw audio for the recogniser.
-    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const processor = ctx.createScriptProcessor(1024, 1, 1); // 64 ms chunks
     processor.onaudioprocess = (e) => {
-      if (playing && settings.mode === 'track' && speech.rec) speech.rec.acceptWaveform(e.inputBuffer);
+      if (setup.rec) setup.rec.acceptWaveform(e.inputBuffer);
+      else if (playing && settings.mode === 'track' && speech.rec) speech.rec.acceptWaveform(e.inputBuffer);
     };
     src.connect(processor);
     processor.connect(ctx.destination);
@@ -213,13 +336,13 @@ function restartMic() {
 }
 
 function needsMic() {
-  return (playing && settings.mode !== 'classic') || calibration.active;
+  return (playing && settings.mode !== 'classic') || calibration.active || !!setup.mode || !!setup.rec;
 }
 
 navigator.mediaDevices.addEventListener('devicechange', () => { if (mic.stream) restartMic(); });
 
 function readLevel() {
-  if (!mic.analyser) return 0;
+  if (!mic.analyser) return mic.level; // test audio sets the level directly
   mic.analyser.getFloatTimeDomainData(mic.buf);
   let sum = 0;
   for (let i = 0; i < mic.buf.length; i++) sum += mic.buf[i] * mic.buf[i];
@@ -260,6 +383,7 @@ function frame() {
   if (settings) {
     let speaking = null;
     if (calibration.active) calibration.samples.push(readLevel());
+    if (setup.mode) setup.levels.push(readLevel());
 
     if (manualJump || pendingJump) {
       const step = pendingJump * Math.min(1, dt * 10);
@@ -271,18 +395,26 @@ function frame() {
           manualJump = false;
           // Word tracking resumes from wherever you moved the text to.
           if (tracker) tracker.setNextWord(wordAt(pos));
+          coast.words = 0;
         }
       }
       active = true;
     } else if (settings.mode === 'track') {
-      readLevel();
-      if (tracker && tracker.word >= 0) {
-        const target = Math.min(maxPos, wordTop(tracker.word + 1 < wordEls.length ? tracker.word + 1 : tracker.word));
-        const delta = target - pos;
-        if (Math.abs(delta) > 0.5) { pos += delta * Math.min(1, dt * 4); active = true; }
+      const talking = hearingVoice(now);
+      // Keep moving through words the recogniser missed, while you are still talking.
+      const sinceMatch = now - speech.lastMatch;
+      if (playing && talking && tracker && tracker.word >= 0 && sinceMatch > COAST_DELAY_MS && sinceMatch < COAST_WINDOW_MS) {
+        coast.words = Math.min(COAST_MAX, coast.words + dt * (settings.wpm / 60) * 0.9);
       }
-      markRead(tracker ? tracker.word : -1);
-      speaking = playing && now - speech.lastMatch < 2500;
+      const shown = tracker && tracker.word >= 0 ? Math.min(wordEls.length - 1, tracker.word + Math.floor(coast.words)) : -1;
+      if (shown >= 0) {
+        const target = Math.min(maxPos, wordTop(shown + 1 < wordEls.length ? shown + 1 : shown));
+        const delta = target - pos;
+        if (Math.abs(delta) > 0.5) { pos += delta * Math.min(1, dt * 8); active = true; }
+      }
+      markRead(shown);
+      coast.shown = shown;
+      speaking = playing && (now - speech.lastMatch < 2500 || (talking && coast.words > 0));
       // Last word said: finish the run shortly after, like the other modes do at the end.
       if (playing && tracker && wordEls.length && tracker.word >= wordEls.length - 1 && now - speech.lastMatch > 1500) playing = false;
     } else {
@@ -299,7 +431,7 @@ function frame() {
     textEl.style.transform = `translateY(${y}px)` + (settings.mirror ? ' scaleX(-1)' : '');
 
     updateHud(speaking, now);
-    active = active || playing || calibration.active;
+    active = active || playing || calibration.active || !!setup.mode;
   }
   // Full frame rate only while something moves; otherwise tick slowly to save battery.
   if (active) requestAnimationFrame(frame);
@@ -335,13 +467,14 @@ function updateHud(speaking, now) {
       speaking: mode !== 'classic' ? speaking : null,
       level: mic.level,
       micError: mic.error,
+      micRate: mic.ctx ? mic.ctx.sampleRate : null,
       model: speech.status,
       modelError: speech.error,
       heard: mode === 'track' ? speech.heard : '',
       calibrating: calibration.active,
       progress,
       para: currentParagraph(),
-      word: mode === 'track' && tracker && tracker.word >= 0 ? tracker.word + 1 : wordAt(pos),
+      word: mode === 'track' && coast.shown >= 0 ? coast.shown + 1 : wordAt(pos),
       testAudioDone,
     });
   }
@@ -403,6 +536,7 @@ const commands = {
     stopMic();
     pos = 0; pendingJump = 0; velocity = 0; manualJump = false;
     if (tracker) tracker.setNextWord(0);
+    coast.words = 0;
     markRead(-1);
     kick();
   },
@@ -418,6 +552,11 @@ window.ontop.on('cmd', (cmd) => {
     if (Number.isInteger(cmd.seek)) return seek(cmd.seek);
     if (Number.isInteger(cmd.seekWord)) return jumpTo(wordTop(cmd.seekWord));
     if (typeof cmd.testAudio === 'string') return testAudio(cmd.testAudio, cmd.speed || 1);
+    if (cmd.setupTest) { setup.test = cmd.setupTest; return; }
+    if (cmd.setup === 'begin') return setupBegin();
+    if (cmd.setup === 'noise') return setupNoise();
+    if (cmd.setup === 'listen') return setupListen(cmd.id);
+    if (cmd.setup === 'end') return setupEnd();
     return;
   }
   if (commands[cmd]) commands[cmd]();
@@ -444,11 +583,13 @@ window.ontop.on('state', (s) => {
   const scriptChanged = s.script !== script;
   const prevMode = settings && settings.mode;
   const prevLang = settings ? settings.language : undefined;
+  const prevAliases = settings ? JSON.stringify(learnedAliases()) : null;
   settings = s.settings;
   script = s.script;
   applySettings();
   const langChanged = prevLang !== undefined && prevLang !== settings.language;
-  if (scriptChanged || langChanged) render();
+  const aliasesChanged = prevAliases !== JSON.stringify(learnedAliases());
+  if (scriptChanged || langChanged || aliasesChanged) render();
   else measure();
   if (settings.mode === 'track') loadModel();
   if (prevMode && prevMode !== settings.mode) {
@@ -480,9 +621,7 @@ async function testAudio(url, speed) {
   await loadModel();
   const ctx = new AudioContext({ sampleRate: 16000 });
   const audio = await ctx.decodeAudioData(await (await fetch(url)).arrayBuffer());
-  const rec = new speech.model.KaldiRecognizer(16000);
-  rec.on('partialresult', (m) => onHeard({ partial: m.result.partial }));
-  rec.on('result', (m) => onHeard({ final: m.result.text }));
+  const rec = makeRecognizer(16000);
   playing = true;
   const data = audio.getChannelData(0);
   const chunk = 1600;

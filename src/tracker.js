@@ -41,8 +41,8 @@
   }
 
   class Tracker {
-    constructor(text, lang = 'en') {
-      this.units = S.units(text, lang);
+    constructor(text, lang = 'en', aliases = {}) {
+      this.units = S.units(text, lang, aliases);
       this.cursor = -1;      // index of the last matched unit
       this.final = [];       // recent finalised words
       this.partial = [];     // words of the utterance in progress

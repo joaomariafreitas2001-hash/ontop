@@ -30,8 +30,9 @@ const LIBRARY_TEST = process.argv.includes('--library-test');
 const SELF_TEST = process.argv.includes('--selftest');
 const DEMO_GIF = process.argv.includes('--demo-gif');
 const SCREENSHOTS = process.argv.includes('--screenshots');
+const SETUP_TEST = process.argv.includes('--setup-test');
 // Test and recording modes never write the user's settings file.
-const TESTING = () => SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || !!MODELS_TEST || DEMO_GIF || SCREENSHOTS;
+const TESTING = () => SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || !!MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST;
 const MODELS_TEST = (process.argv.find((a) => a.startsWith('--models-test=')) || '').split('=')[1] || null;
 const ICON = path.join(ROOT, 'build', 'icon.ico');
 
@@ -559,6 +560,9 @@ ipcMain.on('state:set', (_e, patch) => {
 
 ipcMain.on('cmd', (_e, cmd) => command(cmd));
 
+// Voice setup: the overlay listens, the editor shows the steps.
+ipcMain.on('setup:event', (_e, ev) => send(editor, 'setup', ev));
+
 ipcMain.on('overlay:status', (_e, status) => {
   lastOverlayStatus = status;
   tickRun(status);
@@ -693,8 +697,9 @@ function voskTest() {
     console.log(message);
     if (message === 'DONE') app.quit();
   });
-  const arg = process.argv.find((a) => a.startsWith('--model='));
-  win.loadURL('ontop://app/test/vosk-test.html' + (arg ? '?model=' + encodeURIComponent(arg.slice(8)) : ''));
+  // Pass --model=, --chunk=, --grammar= through as query parameters.
+  const query = process.argv.filter((a) => /^--(model|chunk|grammar)=/.test(a)).map((a) => a.slice(2)).join('&');
+  win.loadURL('ontop://app/test/vosk-test.html' + (query ? '?' + query : ''));
   setTimeout(() => { console.log('TIMEOUT'); app.quit(); }, 120000);
 }
 
@@ -712,13 +717,14 @@ async function trackTest() {
   send(editor, 'state', state);
   send(overlay, 'cmd', 'reset');
   await wait(300);
-  send(overlay, 'cmd', { testAudio: 'ontop://app/test/speech.wav' });
+  const wav = (process.argv.find((a) => a.startsWith('--wav=')) || '--wav=speech.wav').slice(6);
+  send(overlay, 'cmd', { testAudio: 'ontop://app/test/' + wav });
   const log = [];
   editor.webContents.on('console-message', (_e, level, message) => { if (level >= 2) console.log('[editor] ' + message); });
   for (let s = 0; s < 40; s++) {
     await wait(1000);
     const st = lastOverlayStatus;
-    log.push(`${s + 1}s word=${st.word} para=${st.para} model=${st.model} heard="${st.heard || ''}"`);
+    log.push(`${s + 1}s word=${st.word} para=${st.para} speaking=${st.speaking} heard="${st.heard || ''}"`);
   }
   fs.writeFileSync(path.join(out, 'track.log'), log.join('\n'));
   const timerAtEnd = timerPayload();
@@ -886,6 +892,47 @@ async function screenshots() {
   app.quit();
 }
 
+// Voice setup test: generic script, recordings instead of the mic, the editor's
+// buttons clicked like a user would. Nothing is saved (TESTING). Usage: npm run test:setup
+async function setupTest() {
+  const out = path.join(ROOT, 'smoke');
+  fs.mkdirSync(out, { recursive: true });
+  await new Promise((r) => (editor.webContents.isLoading() ? editor.webContents.once('did-finish-load', r) : r()));
+  await wait(1500);
+  const t = (f) => 'ontop://app/test/' + f;
+  send(overlay, 'cmd', { setupTest: {
+    s0: t('setup-s0.wav'), s1: t('setup-s1.wav'), s2: t('setup-s2.wav'),
+    w0: t('setup-w-EMIR.wav'), w1: t('setup-w-Northwind.wav'), w2: t('setup-w-Bank.wav'), w3: t('setup-w-Lisbon.wav'),
+  } });
+  const js = (code) => editor.webContents.executeJavaScript(code);
+  await js("document.getElementById('btn-voice-setup').click(); document.getElementById('setup-next').click();");
+  const shots = { sentence: false, words: false, done: false };
+  const log = [];
+  const t0 = Date.now();
+  while (Date.now() - t0 < 120000) {
+    await wait(400);
+    const ui = await js("({ open: !document.getElementById('setup').hidden, title: document.getElementById('setup-title').textContent, body: document.getElementById('setup-body').innerText.replace(/\\s+/g, ' ').slice(0, 160), ready: !document.getElementById('setup-next').disabled, next: document.getElementById('setup-next').textContent })");
+    if (!ui.open) break;
+    const step = /Read this/.test(ui.title) ? 'sentence' : /Say each/.test(ui.title) ? 'words' : /All set/.test(ui.title) ? 'done' : null;
+    if (ui.ready) {
+      log.push(`${ui.title} | ${ui.body}`);
+      if (step && !shots[step]) {
+        shots[step] = true;
+        fs.writeFileSync(path.join(out, `setup-${step}.png`), (await editor.webContents.capturePage()).toPNG());
+      }
+      await js("document.getElementById('setup-next').click()");
+    }
+  }
+  const v = state.settings.voice || null;
+  fs.writeFileSync(path.join(out, 'setup.json'), JSON.stringify({
+    steps: log,
+    micThreshold: state.settings.micThreshold,
+    wpm: state.settings.wpm,
+    voice: v && { ...v, aliases: v.aliases },
+  }, null, 2));
+  app.quit();
+}
+
 // Self-test for the installed app: does the speech model load, do the hotkeys
 // register? Prints one JSON line and quits. Usage: OnTop.exe --selftest
 async function selfTest() {
@@ -897,12 +944,21 @@ async function selfTest() {
     await wait(500);
     if (lastOverlayStatus.model === 'ready' || lastOverlayStatus.model === 'error') break;
   }
+  const modelLoadSeconds = Math.round((Date.now() - started) / 100) / 10;
+  const model = lastOverlayStatus.model;
+  const modelError = lastOverlayStatus.modelError || null;
+  // Open the microphone briefly (16 kHz capture for the recogniser), then stop.
+  send(overlay, 'cmd', 'play');
+  await wait(2500);
+  const mic = { error: lastOverlayStatus.micError || null, sampleRate: lastOverlayStatus.micRate || null };
+  send(overlay, 'cmd', 'reset');
   const result = {
     version: app.getVersion(),
     packaged: app.isPackaged,
-    model: lastOverlayStatus.model,
-    modelError: lastOverlayStatus.modelError || null,
-    modelLoadSeconds: Math.round((Date.now() - started) / 100) / 10,
+    model,
+    modelError,
+    modelLoadSeconds,
+    mic,
     hotkeyErrors,
     numberKeyErrors,
     userData: app.getPath('userData'),
@@ -915,7 +971,7 @@ async function selfTest() {
 // --- app lifecycle --------------------------------------------------------
 
 // One OnTop at a time: a second launch just brings the first to the front.
-const gotLock = SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || MODELS_TEST || DEMO_GIF || SCREENSHOTS || app.requestSingleInstanceLock();
+const gotLock = SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
@@ -941,7 +997,12 @@ if (!gotLock) {
 
     if (VOSK_TEST) return voskTest();
 
-    state = SCREENSHOTS ? sampleState() : load();
+    state = SCREENSHOTS || SETUP_TEST ? sampleState() : load();
+    if (SETUP_TEST) {
+      const text = fs.readFileSync(path.join(ROOT, 'test', 'setup-script.txt'), 'utf8');
+      state.scripts[0].text = text;
+      state.script = text;
+    }
     if (DEMO_GIF) return demoGif();
     // First launch (or first after the rename): write the settings file right away.
     if (!fs.existsSync(storePath()) && !SMOKE && !TRACK_TEST && !LIBRARY_TEST && !SELF_TEST && !MODELS_TEST) saveNow();
@@ -955,6 +1016,7 @@ if (!gotLock) {
     if (SELF_TEST) selfTest();
     if (MODELS_TEST) modelsTest(MODELS_TEST);
     if (SCREENSHOTS) screenshots();
+    if (SETUP_TEST) setupTest();
   });
 
   app.on('before-quit', () => { if (state && saveTimer) saveNow(); });

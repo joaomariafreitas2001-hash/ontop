@@ -417,6 +417,7 @@ window.ontop.on('state', (s) => {
   fill();
   updateCounts();
   renderLanguage();
+  if (window.OnTopVoiceSummary) window.OnTopVoiceSummary();
 });
 
 window.ontop.on('status', (st) => {

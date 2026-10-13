@@ -117,10 +117,40 @@
   }
 
   // Speech units for the whole script: [{ u: 'company', w: wordIndex }]
-  function units(text, lang = 'en') {
+  // `aliases` comes from Voice setup: { haitong: ['hey', 'tongs'] } means "the recogniser
+  // hears this word as 'hey tongs' when you say it", so those are the units to expect.
+  function units(text, lang = 'en', aliases = {}) {
     const out = [];
-    words(text).forEach((w, i) => spoken(w.text, lang).forEach((u) => out.push({ u, w: i })));
+    words(text).forEach((w, i) => {
+      const alias = aliases[clean(w.text).replace(/ /g, '')];
+      (alias && alias.length ? alias : spoken(w.text, lang)).forEach((u) => out.push({ u, w: i }));
+    });
     return out;
+  }
+
+  // Words in a script the recogniser is likely to get wrong: acronyms and names
+  // (capitalised words that don't start a sentence). Used by Voice setup.
+  function trickyWords(text, max = 10) {
+    const seen = new Set();
+    const acronyms = [];
+    const names = [];
+    let sentenceStart = true;
+    TOKEN.lastIndex = 0;
+    let m;
+    while ((m = TOKEN.exec(text))) {
+      const tok = m[0];
+      if (tok[0] === '[') { sentenceStart = true; continue; }
+      const bare = tok.replace(/^[^\p{L}\d]+|[^\p{L}\d]+$/gu, '');
+      const key = clean(bare).replace(/ /g, '');
+      const isAcronym = /^\p{Lu}[\p{Lu}\d]+$/u.test(bare) || /^\p{Lu}\p{Ll}*\p{Lu}/u.test(bare);
+      const isName = !sentenceStart && /^\p{Lu}\p{Ll}/u.test(bare) && bare !== 'I';
+      if (key.length >= 2 && !/^\d+$/.test(key) && !seen.has(key) && (isAcronym || isName)) {
+        seen.add(key);
+        (isAcronym ? acronyms : names).push(bare);
+      }
+      sentenceStart = /[.!?:]["')\]]?$/.test(tok);
+    }
+    return [...acronyms, ...names].slice(0, max);
   }
 
   function heardWords(text) {
@@ -162,7 +192,7 @@
     es: { label: 'Español', file: 'es.tar.gz', dir: 'vosk-model-small-es-0.42', mb: 38, url: 'https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip' },
   };
 
-  const api = { paragraphs, words, units, spoken, heardWords, clean, sections, clock, numberWords, MODELS };
+  const api = { paragraphs, words, units, spoken, heardWords, clean, sections, clock, numberWords, trickyWords, MODELS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.OnTopScript = api;
 })(typeof window !== 'undefined' ? window : globalThis);

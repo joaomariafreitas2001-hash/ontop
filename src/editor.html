@@ -108,6 +108,10 @@
             <div class="dl-bar"><i id="dl-progress"></i></div>
             <span id="dl-text" class="dl-text"></span>
           </div>
+          <div class="cell row not-classic">
+            <span class="lbl voice-setup-lbl">Voice setup<small id="voice-summary">Not set up</small></span>
+            <button class="pill-btn" id="btn-voice-setup">Set up</button>
+          </div>
           <div class="cell track-only heard">
             <div class="heard-head">
               <span class="lbl"><svg class="mic-glyph"><use href="#i-mic"/></svg>Heard</span>
@@ -225,7 +229,22 @@
       </section>
     </aside>
   </div>
+  <div class="sheet-backdrop" id="setup" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+      <div class="sheet-steps" id="setup-steps"></div>
+      <h2 id="setup-title">Voice setup</h2>
+      <div class="sheet-body" id="setup-body"></div>
+      <div class="sheet-foot">
+        <button class="sheet-btn" id="setup-cancel">Cancel</button>
+        <span class="spacer"></span>
+        <button class="sheet-btn secondary" id="setup-alt" hidden></button>
+        <button class="sheet-btn primary" id="setup-next">Start</button>
+      </div>
+    </div>
+  </div>
+
   <script src="script.js"></script>
   <script src="editor.js"></script>
+  <script src="voice-setup.js"></script>
 </body>
 </html>
