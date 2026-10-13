@@ -54,6 +54,11 @@
   el('btn-rehearse').addEventListener('click', () => (live ? send('cmd', { rehearse: 'finish' }) : openStart()));
   el('rh-cancel').addEventListener('click', () => { el('rehearse').hidden = true; });
   el('rh-start').addEventListener('click', start);
+  const step = (d) => { const t = parseTime(el('rh-target').value) || defaultTarget(); el('rh-target').value = clock(Math.max(30, t + d)); };
+  el('rh-minus').addEventListener('click', () => step(-30));
+  el('rh-plus').addEventListener('click', () => step(30));
+  // Up/down arrows in the field change it by 30 seconds too.
+  el('rh-target').addEventListener('keydown', (e) => { if (e.key === 'ArrowUp') { e.preventDefault(); step(30); } if (e.key === 'ArrowDown') { e.preventDefault(); step(-30); } });
   el('rh-target').addEventListener('keydown', (e) => { if (e.key === 'Enter') start(); if (e.key === 'Escape') el('rehearse').hidden = true; });
 
   // Toolbar button: "Rehearse", or "Finish" while a rehearsal runs.

@@ -273,7 +273,11 @@
         <p>Present with the teleprompter the way you will on the day. OnTop follows your script, times each slide and tells you at the end how you did against your target.</p>
         <label class="field">
           <span>Target length</span>
-          <input id="rh-target" type="text" inputmode="numeric" placeholder="10:00" autocomplete="off" />
+          <span class="stepper">
+            <button type="button" id="rh-minus" title="30 seconds less">−</button>
+            <input id="rh-target" type="text" inputmode="numeric" placeholder="10:00" autocomplete="off" />
+            <button type="button" id="rh-plus" title="30 seconds more">+</button>
+          </span>
           <small id="rh-estimate"></small>
         </label>
 

@@ -238,6 +238,12 @@ scriptEl.addEventListener('click', (e) => {
   send('cmd', { seekWord: first >= 0 ? first : i });
 });
 
+// Typing in any field (script, slide cards, rehearsal target…): tell the main process so
+// the global 1/2 shortcuts can't swallow those digits.
+const isTextField = (t) => t && (t.tagName === 'TEXTAREA' || t.isContentEditable || (t.tagName === 'INPUT' && !['range', 'checkbox', 'color', 'radio'].includes(t.type)));
+document.addEventListener('focusin', (e) => { if (isTextField(e.target)) send('editor:typing', true); });
+document.addEventListener('focusout', (e) => { if (isTextField(e.target)) send('editor:typing', false); });
+
 function setIcon(btn, id) {
   btn.querySelector('use').setAttribute('href', '#' + id);
 }

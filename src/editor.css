@@ -895,3 +895,10 @@ body.slides-view .doc-meta .hint { display: none; }
 .slides-foot b { color: var(--label); font-weight: 600; }
 .slides-foot .spacer { flex: 1; }
 .pill-btn.quiet { background: var(--fill); color: var(--secondary); }
+
+/* Target length stepper */
+.stepper { display: inline-flex; align-items: center; gap: 6px; }
+.stepper button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: var(--fill); color: var(--label); font: 600 17px var(--font); }
+.stepper button:hover { background: var(--fill-strong); }
+.stepper input { text-align: center; user-select: text; }
+.field input { user-select: text; }

@@ -33,8 +33,9 @@ const SCREENSHOTS = process.argv.includes('--screenshots');
 const SETUP_TEST = process.argv.includes('--setup-test');
 const REHEARSE_TEST = process.argv.includes('--rehearse-test');
 const BUILDER_TEST = process.argv.includes('--builder-test');
+const TYPING_TEST = process.argv.includes('--typing-test');
 // Test and recording modes never write the user's settings file.
-const TESTING = () => SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || !!MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST;
+const TESTING = () => SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || !!MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST || TYPING_TEST;
 const MODELS_TEST = (process.argv.find((a) => a.startsWith('--models-test=')) || '').split('=')[1] || null;
 const ICON = path.join(ROOT, 'build', 'icon.ico');
 
@@ -541,7 +542,9 @@ function registerHotkeys() {
 
 function updateNumberKeys() {
   if (!state) return;
-  const want = !!state.settings.numberKeys && !(editor && !editor.isDestroyed() && editor.isFocused());
+  // Off while the editor has focus or you're typing in one of its fields (Windows doesn't
+  // always report the window's focus, so the page also tells us when a field is focused).
+  const want = !!state.settings.numberKeys && !editorTyping && !(editor && !editor.isDestroyed() && editor.isFocused());
   numberKeyErrors = [];
   for (const [accel, cmd] of Object.entries(NUMBER_KEYS)) {
     const has = globalShortcut.isRegistered(accel);
@@ -567,6 +570,9 @@ ipcMain.on('state:set', (_e, patch) => {
 });
 
 ipcMain.on('cmd', (_e, cmd) => command(cmd));
+
+let editorTyping = false;
+ipcMain.on('editor:typing', (_e, on) => { editorTyping = !!on; updateNumberKeys(); });
 
 // Voice setup: the overlay listens, the editor shows the steps.
 ipcMain.on('setup:event', (_e, ev) => send(editor, 'setup', ev));
@@ -1082,6 +1088,43 @@ async function builderTest() {
   app.quit();
 }
 
+// Typing test: real keystrokes into the Rehearse target field. Usage: --typing-test
+async function typingTest() {
+  await new Promise((r) => (editor.webContents.isLoading() ? editor.webContents.once('did-finish-load', r) : r()));
+  await wait(1500);
+  editor.show();
+  editor.focus();
+  const js = (code) => editor.webContents.executeJavaScript(code);
+  await js("document.getElementById('btn-rehearse').click()");
+  await wait(400);
+  const before = await js("({ value: document.getElementById('rh-target').value, focused: document.activeElement && document.activeElement.id })");
+  for (const ch of ['BackSpace', 'BackSpace', 'BackSpace', 'BackSpace', 'BackSpace', '1', '2', ':', '3', '0']) {
+    if (ch === 'BackSpace') {
+      editor.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' });
+      editor.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
+    } else {
+      editor.webContents.sendInputEvent({ type: 'keyDown', keyCode: ch });
+      editor.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+      editor.webContents.sendInputEvent({ type: 'keyUp', keyCode: ch });
+    }
+    await wait(80);
+  }
+  await wait(300);
+  const after = await js("({ value: document.getElementById('rh-target').value, focused: document.activeElement && document.activeElement.id })");
+  const typingFlag = editorTyping;
+  // Even if Windows reports the editor as unfocused, typing keeps 1/2 off.
+  overlay.focus();
+  await wait(300);
+  const numberKeysWhileTyping = globalShortcut.isRegistered('1');
+  await js("document.getElementById('rh-plus').click(); document.getElementById('rh-plus').click()");
+  const afterPlus = await js("document.getElementById('rh-target').value");
+  const out = path.join(ROOT, 'smoke');
+  fs.mkdirSync(out, { recursive: true });
+  fs.writeFileSync(path.join(out, 'typing.json'), JSON.stringify({ before, after, typingFlag, numberKeysWhileTyping, afterPlus }, null, 2));
+  fs.writeFileSync(path.join(out, 'typing.png'), (await editor.webContents.capturePage()).toPNG());
+  app.quit();
+}
+
 // Self-test for the installed app: does the speech model load, do the hotkeys
 // register? Prints one JSON line and quits. Usage: OnTop.exe --selftest
 async function selfTest() {
@@ -1120,7 +1163,7 @@ async function selfTest() {
 // --- app lifecycle --------------------------------------------------------
 
 // One OnTop at a time: a second launch just brings the first to the front.
-const gotLock = SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST || app.requestSingleInstanceLock();
+const gotLock = SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST || TYPING_TEST || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
@@ -1146,7 +1189,7 @@ if (!gotLock) {
 
     if (VOSK_TEST) return voskTest();
 
-    state = SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST ? sampleState() : load();
+    state = SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST || TYPING_TEST ? sampleState() : load();
     if (SETUP_TEST) {
       const text = fs.readFileSync(path.join(ROOT, 'test', 'setup-script.txt'), 'utf8');
       state.scripts[0].text = text;
@@ -1168,6 +1211,7 @@ if (!gotLock) {
     if (SETUP_TEST) setupTest();
     if (REHEARSE_TEST) rehearseTest();
     if (BUILDER_TEST) builderTest();
+    if (TYPING_TEST) typingTest();
   });
 
   app.on('before-quit', () => { if (state && saveTimer) saveNow(); });
