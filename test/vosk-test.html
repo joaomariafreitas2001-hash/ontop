@@ -8,7 +8,8 @@
 (async () => {
   const t0 = performance.now();
   try {
-    const model = await Vosk.createModel('ontop://app/models/en-us.tar.gz');
+    const params = new URLSearchParams(location.search);
+    const model = await Vosk.createModel('ontop://app/models/' + (params.get('model') || 'en-us.tar.gz'));
     console.log('MODEL_LOADED ms=' + Math.round(performance.now() - t0));
     const buf = await (await fetch('ontop://app/test/speech.wav')).arrayBuffer();
     const ctx = new AudioContext({ sampleRate: 16000 });

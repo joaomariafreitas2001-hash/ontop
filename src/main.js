@@ -6,11 +6,16 @@
 // Pages load from a private ontop:// protocol so the speech model (a local
 // file) can be fetched by the recognizer's web worker.
 
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, session, nativeTheme, protocol, net, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, session, nativeTheme, protocol, net, dialog, systemPreferences } = require('electron');
+
+const IS_MAC = process.platform === 'darwin';
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const crypto = require('crypto');
+const https = require('https');
+const { execFile } = require('child_process');
+const execFileAsync = (cmd, args) => new Promise((res, rej) => execFile(cmd, args, (err) => (err ? rej(err) : res())));
 const Markdown = require('./markdown.js');
 const Script = require('./script.js');
 
@@ -23,6 +28,11 @@ const VOSK_TEST = process.argv.includes('--vosk-test');
 const TRACK_TEST = process.argv.includes('--track-test');
 const LIBRARY_TEST = process.argv.includes('--library-test');
 const SELF_TEST = process.argv.includes('--selftest');
+const DEMO_GIF = process.argv.includes('--demo-gif');
+const SCREENSHOTS = process.argv.includes('--screenshots');
+// Test and recording modes never write the user's settings file.
+const TESTING = () => SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || !!MODELS_TEST || DEMO_GIF || SCREENSHOTS;
+const MODELS_TEST = (process.argv.find((a) => a.startsWith('--models-test=')) || '').split('=')[1] || null;
 const ICON = path.join(ROOT, 'build', 'icon.ico');
 
 // ontop://app/<path> -> file on disk. Only these folders are served.
@@ -34,11 +44,96 @@ const SERVED_DIRS = app.isPackaged ? ['src'] : ['src', 'test'];
 function resolveRoute(rel) {
   if (ROUTES[rel]) return ROUTES[rel];
   const top = rel.split('/')[0];
-  const base = top === 'models' ? MODELS : SERVED_DIRS.includes(top) ? path.join(ROOT, top) : null;
+  const rest = rel.slice(top.length + 1);
+  // Speech models: the bundled folder first, then models downloaded by the user.
+  if (top === 'models') {
+    for (const base of [MODELS, userModelsDir()]) {
+      const resolved = path.normalize(path.join(base, rest));
+      if (resolved.startsWith(base + path.sep) && fs.existsSync(resolved)) return resolved;
+    }
+    return null;
+  }
+  const base = SERVED_DIRS.includes(top) ? path.join(ROOT, top) : null;
   if (!base) return null;
-  const resolved = path.normalize(path.join(base, rel.slice(top.length + 1)));
+  const resolved = path.normalize(path.join(base, rest));
   return resolved.startsWith(base + path.sep) ? resolved : null;
 }
+
+// --- speech models --------------------------------------------------------------
+
+const userModelsDir = () => path.join(app.getPath('userData'), 'models');
+const modelInstalled = (lang) => !!resolveRoute('models/' + Script.MODELS[lang].file);
+const downloads = {}; // lang -> { received, total } while downloading
+
+function modelsStatus() {
+  const out = {};
+  for (const [lang, m] of Object.entries(Script.MODELS)) {
+    out[lang] = { label: m.label, mb: m.mb, installed: modelInstalled(lang), downloading: downloads[lang] || null };
+  }
+  return out;
+}
+
+function pushModels() {
+  send(editor, 'models', modelsStatus());
+}
+
+function fetchFile(url, dest, onProgress) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        return fetchFile(new URL(res.headers.location, url).toString(), dest, onProgress).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+      const total = Number(res.headers['content-length']) || 0;
+      let received = 0;
+      const file = fs.createWriteStream(dest);
+      res.on('data', (chunk) => { received += chunk.length; onProgress(received, total); });
+      res.pipe(file);
+      file.on('finish', () => file.close(resolve));
+      file.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+// Download a language model from alphacephei.com (the Vosk project) and repack the
+// zip as the tar.gz that vosk-browser loads. Uses the system tar (Windows 10+, macOS).
+async function downloadModel(lang) {
+  const m = Script.MODELS[lang];
+  if (!m || downloads[lang] || modelInstalled(lang)) return;
+  downloads[lang] = { received: 0, total: m.mb * 1e6 };
+  pushModels();
+  const tmp = fs.mkdtempSync(path.join(app.getPath('temp'), 'ontop-model-'));
+  try {
+    let last = 0;
+    await fetchFile(m.url, path.join(tmp, 'model.zip'), (received, total) => {
+      downloads[lang] = { received, total: total || downloads[lang].total };
+      if (Date.now() - last > 250) { last = Date.now(); pushModels(); }
+    });
+    await execFileAsync('tar', ['-xf', path.join(tmp, 'model.zip'), '-C', tmp]);
+    if (!fs.existsSync(path.join(tmp, m.dir))) throw new Error('unexpected archive layout');
+    fs.mkdirSync(userModelsDir(), { recursive: true });
+    const partial = path.join(userModelsDir(), m.file + '.part');
+    await execFileAsync('tar', ['-czf', partial, '-C', tmp, m.dir]);
+    fs.renameSync(partial, path.join(userModelsDir(), m.file));
+  } catch (e) {
+    dialog.showErrorBox('Download failed', `${m.label} speech model: ${e.message}`);
+  } finally {
+    delete downloads[lang];
+    fs.rmSync(tmp, { recursive: true, force: true });
+    pushModels();
+    broadcastState(); // the overlay retries loading the model for the current language
+  }
+}
+
+ipcMain.on('models', (_e, msg) => {
+  if (msg && msg.op === 'download') downloadModel(msg.lang);
+  else pushModels();
+});
+
+// Test modes print to stdout; if whoever reads it stops early, don't crash.
+process.stdout.on('error', () => {});
+process.stderr.on('error', () => {});
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'ontop', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
@@ -62,6 +157,7 @@ const DEFAULTS = {
   script: DEFAULT_SCRIPT,
   settings: {
     mode: 'track',          // 'track' = follow your words, 'voice' = scroll while you speak, 'classic' = constant speed
+    language: 'en',         // speech model for word tracking: en, pt, es
     wpm: 140,               // reading speed in words per minute
     fontSize: 30,
     lineHeight: 1.35,
@@ -238,6 +334,7 @@ let saveTimer = null;
 function saveNow() {
   clearTimeout(saveTimer);
   saveTimer = null;
+  if (TESTING()) return;
   try { fs.writeFileSync(storePath(), JSON.stringify(state, null, 2)); } catch (e) { console.error('save failed', e); }
 }
 function save() {
@@ -317,7 +414,7 @@ function createOverlay() {
     },
   });
   overlay.setAlwaysOnTop(true, 'screen-saver');
-  overlay.setVisibleOnAllWorkspaces(true);
+  overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlay.setContentProtection(!!state.settings.hideFromCapture);
   overlay.setIgnoreMouseEvents(state.locked, { forward: true });
   overlay.loadURL('ontop://app/src/overlay.html');
@@ -350,7 +447,7 @@ function themeColors() {
 }
 
 nativeTheme.on('updated', () => {
-  if (editor && !editor.isDestroyed()) {
+  if (editor && !editor.isDestroyed() && !IS_MAC) {
     editor.setTitleBarOverlay(themeColors().overlay);
     editor.setBackgroundColor(themeColors().window);
   }
@@ -365,8 +462,9 @@ function createEditor() {
     title: 'OnTop',
     icon: ICON,
     backgroundColor: themeColors().window,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: themeColors().overlay,
+    ...(IS_MAC
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 18 } }
+      : { titleBarStyle: 'hidden', titleBarOverlay: themeColors().overlay }),
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
@@ -375,6 +473,7 @@ function createEditor() {
   editor.webContents.on('did-finish-load', () => {
     send(editor, 'state', state);
     pushStatus();
+    pushModels();
   });
   editor.on('focus', () => updateNumberKeys());
   editor.on('blur', () => updateNumberKeys());
@@ -594,7 +693,8 @@ function voskTest() {
     console.log(message);
     if (message === 'DONE') app.quit();
   });
-  win.loadURL('ontop://app/test/vosk-test.html');
+  const arg = process.argv.find((a) => a.startsWith('--model='));
+  win.loadURL('ontop://app/test/vosk-test.html' + (arg ? '?model=' + encodeURIComponent(arg.slice(8)) : ''));
   setTimeout(() => { console.log('TIMEOUT'); app.quit(); }, 120000);
 }
 
@@ -663,6 +763,129 @@ async function libraryTest() {
   app.quit();
 }
 
+// Language test: download a model through the app (as the Download button does),
+// then switch the overlay to it and check it loads. Usage: --models-test=pt
+async function modelsTest(lang) {
+  if (overlay.webContents.isLoading()) await new Promise((r) => overlay.webContents.once('did-finish-load', r));
+  const before = modelInstalled(lang);
+  const t0 = Date.now();
+  await downloadModel(lang);
+  const downloadSeconds = Math.round((Date.now() - t0) / 1000);
+  send(overlay, 'state', { ...state, settings: { ...state.settings, mode: 'track', language: lang } });
+  const t1 = Date.now();
+  while (Date.now() - t1 < 60000) {
+    await wait(500);
+    if (lastOverlayStatus.model === 'ready' || lastOverlayStatus.model === 'error') break;
+  }
+  const result = { lang, installedBefore: before, installedAfter: modelInstalled(lang), downloadSeconds, model: lastOverlayStatus.model, modelError: lastOverlayStatus.modelError || null, file: resolveRoute('models/' + Script.MODELS[lang].file) };
+  fs.writeFileSync(path.join(ROOT, 'smoke', 'models-test.json'), JSON.stringify(result, null, 2));
+  app.quit();
+}
+
+// README animation: render the overlay's demo stage off-screen, play the fixture
+// speech into it and encode what it shows as docs/demo.gif. Usage: npm run demo
+async function demoGif() {
+  const { GIFEncoder, quantize, applyPalette } = require('gifenc');
+  const W = 720, H = 330, FPS = 8, SPEED = 1.35, COLORS = 96;
+  overlay = new BrowserWindow({
+    width: W, height: H, show: false, frame: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), offscreen: true, backgroundThrottling: false },
+  });
+  overlay.webContents.setFrameRate(30);
+  let latest = null;
+  overlay.webContents.on('paint', (_e, _dirty, image) => { latest = image; });
+  await overlay.loadURL('ontop://app/src/overlay.html?demo');
+  const script = fs.readFileSync(path.join(ROOT, 'test', 'fixture-script.txt'), 'utf8').trim();
+  state.script = script;
+  send(overlay, 'state', {
+    ...state,
+    script,
+    settings: { ...DEFAULTS.settings, mode: 'track', language: 'en', fontSize: 25, lineHeight: 1.32, paraGap: 0.25, readingLine: 0.4, bgOpacity: 0.6 },
+  });
+  const t0 = Date.now();
+  while (lastOverlayStatus.model !== 'ready' && Date.now() - t0 < 60000) await wait(250);
+  send(overlay, 'cmd', 'reset');
+  await wait(1200); // a still opening frame
+  send(overlay, 'cmd', { testAudio: 'ontop://app/test/speech.wav', speed: SPEED });
+
+  const gif = GIFEncoder();
+  let frames = 0, prev = null, holdMs = 0;
+  const flush = (img) => {
+    const { width, height } = img.getSize();
+    const bgra = img.toBitmap();
+    const rgba = new Uint8ClampedArray(bgra.length);
+    for (let i = 0; i < bgra.length; i += 4) { rgba[i] = bgra[i + 2]; rgba[i + 1] = bgra[i + 1]; rgba[i + 2] = bgra[i]; rgba[i + 3] = 255; }
+    const palette = quantize(rgba, COLORS);
+    gif.writeFrame(applyPalette(rgba, palette), width, height, { palette, delay: holdMs });
+    frames++;
+  };
+  const started = Date.now();
+  let doneAt = null;
+  while (Date.now() - started < 60000) {
+    await wait(1000 / FPS);
+    if (!latest) continue;
+    const img = latest.getSize().width === W ? latest : latest.resize({ width: W, height: H });
+    if (lastOverlayStatus.testAudioDone && !doneAt) doneAt = Date.now();
+    if (doneAt && Date.now() - doneAt > 2500) break;
+    if (frames === 60) fs.writeFileSync(path.join(ROOT, 'smoke', 'demo-frame.png'), img.toPNG());
+    // Identical frames are merged into one longer frame to keep the file small.
+    if (prev && img.toBitmap().equals(prev.toBitmap())) { holdMs += 1000 / FPS; continue; }
+    if (prev) flush(prev);
+    prev = img;
+    holdMs = 1000 / FPS;
+  }
+  holdMs += 2000; // linger on the last frame before looping
+  if (prev) flush(prev);
+  gif.finish();
+  const out = path.join(ROOT, 'docs', 'demo.gif');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, gif.bytes());
+  console.log(JSON.stringify({ frames, seconds: Math.round((Date.now() - started) / 1000), kb: Math.round(fs.statSync(out).size / 1024) }));
+  app.quit();
+}
+
+// README screenshot of the editor, with a generic sample library held in memory
+// (never the user's scripts). Usage: npm run screenshots
+function sampleState() {
+  const quarterly = fs.readFileSync(path.join(ROOT, 'test', 'fixture-script.txt'), 'utf8').trim();
+  const conference = '[Hook · 0:00]\nEvery week, your team spends hours preparing updates nobody reads.\n\n[The idea · 0:20]\nWhat if the update wrote itself from the work you already do?';
+  const scripts = [
+    { id: newId(), name: 'Quarterly review', text: quarterly, source: null },
+    { id: newId(), name: 'Conference talk', text: conference, source: { path: 'C:\\Talks\\conference-talk.md' } },
+    { id: newId(), name: 'Welcome to OnTop', text: DEFAULT_SCRIPT, source: null },
+  ];
+  const run = (daysAgo, total, actuals) => ({
+    id: newId(), scriptId: scripts[0].id, scriptName: scripts[0].name, completed: true, total,
+    startedAt: new Date(Date.now() - daysAgo * 864e5).toISOString(),
+    sections: [['Opening', 0], ['Results', 15], ['Next steps', 30]].map(([title, planned], i) => ({ title, num: '', planned, actual: actuals[i] })),
+  });
+  const st = {
+    scripts,
+    activeId: scripts[0].id,
+    settings: { ...DEFAULTS.settings },
+    bounds: null,
+    locked: true,
+    runs: [run(1, 41, [0, 17, 33]), run(2, 44, [0, 18, 36]), run(3, 47, [0, 19, 38])],
+  };
+  st.script = quarterly;
+  return st;
+}
+
+async function screenshots() {
+  await new Promise((r) => (editor.webContents.isLoading() ? editor.webContents.once('did-finish-load', r) : r()));
+  const t0 = Date.now();
+  while (lastOverlayStatus.model !== 'ready' && Date.now() - t0 < 60000) await wait(250);
+  send(overlay, 'cmd', 'reset');
+  send(overlay, 'cmd', { testAudio: 'ontop://app/test/speech.wav', speed: 1 });
+  await wait(17000); // into the "Results" section
+  const img = await editor.webContents.capturePage();
+  const out = path.join(ROOT, 'docs', 'editor.png');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, img.resize({ width: 1600 }).toPNG());
+  console.log(JSON.stringify({ saved: out, kb: Math.round(fs.statSync(out).size / 1024) }));
+  app.quit();
+}
+
 // Self-test for the installed app: does the speech model load, do the hotkeys
 // register? Prints one JSON line and quits. Usage: OnTop.exe --selftest
 async function selfTest() {
@@ -692,7 +915,7 @@ async function selfTest() {
 // --- app lifecycle --------------------------------------------------------
 
 // One OnTop at a time: a second launch just brings the first to the front.
-const gotLock = SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || app.requestSingleInstanceLock();
+const gotLock = SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || MODELS_TEST || DEMO_GIF || SCREENSHOTS || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
@@ -712,14 +935,16 @@ if (!gotLock) {
     });
 
     // Allow the overlay to use the microphone for voice-activated scrolling.
+    if (IS_MAC && systemPreferences.getMediaAccessStatus('microphone') !== 'granted') systemPreferences.askForMediaAccess('microphone');
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
 
     if (VOSK_TEST) return voskTest();
 
-    state = load();
+    state = SCREENSHOTS ? sampleState() : load();
+    if (DEMO_GIF) return demoGif();
     // First launch (or first after the rename): write the settings file right away.
-    if (!fs.existsSync(storePath()) && !SMOKE && !TRACK_TEST && !LIBRARY_TEST && !SELF_TEST) saveNow();
+    if (!fs.existsSync(storePath()) && !SMOKE && !TRACK_TEST && !LIBRARY_TEST && !SELF_TEST && !MODELS_TEST) saveNow();
     watchSources();
     createEditor();
     createOverlay();
@@ -728,6 +953,8 @@ if (!gotLock) {
     if (TRACK_TEST) trackTest();
     if (LIBRARY_TEST) libraryTest();
     if (SELF_TEST) selfTest();
+    if (MODELS_TEST) modelsTest(MODELS_TEST);
+    if (SCREENSHOTS) screenshots();
   });
 
   app.on('before-quit', () => { if (state && saveTimer) saveNow(); });

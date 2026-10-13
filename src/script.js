@@ -24,16 +24,68 @@
 
   // --- normalisation for speech matching ------------------------------------
 
-  const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
-    'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
-  const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  // Numbers as a recogniser writes them, per language. Accents are dropped
+  // because matching compares cleaned words ("três" -> "tres").
 
-  function numberWords(n) {
-    if (n < 20) return [ONES[n]];
-    if (n < 100) return [TENS[Math.floor(n / 10)], ...(n % 10 ? [ONES[n % 10]] : [])];
-    if (n < 1000) return [ONES[Math.floor(n / 100)], 'hundred', ...(n % 100 ? numberWords(n % 100) : [])];
-    if (n < 1e6) return [...numberWords(Math.floor(n / 1000)), 'thousand', ...(n % 1000 ? numberWords(n % 1000) : [])];
-    return [...numberWords(Math.floor(n / 1e6)), 'million', ...(n % 1e6 ? numberWords(n % 1e6) : [])];
+  const EN_ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const EN_TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+  function enNumber(n) {
+    if (n < 20) return [EN_ONES[n]];
+    if (n < 100) return [EN_TENS[Math.floor(n / 10)], ...(n % 10 ? [EN_ONES[n % 10]] : [])];
+    if (n < 1000) return [EN_ONES[Math.floor(n / 100)], 'hundred', ...(n % 100 ? enNumber(n % 100) : [])];
+    if (n < 1e6) return [...enNumber(Math.floor(n / 1000)), 'thousand', ...(n % 1000 ? enNumber(n % 1000) : [])];
+    return [...enNumber(Math.floor(n / 1e6)), 'million', ...(n % 1e6 ? enNumber(n % 1e6) : [])];
+  }
+
+  // Brazilian forms (the Vosk Portuguese model is pt-BR); European spellings like
+  // "dezasseis" still match through the fuzzy comparison.
+  const PT_ONES = ['zero', 'um', 'dois', 'tres', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez',
+    'onze', 'doze', 'treze', 'catorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+  const PT_TENS = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+  const PT_HUNDREDS = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
+
+  function ptNumber(n) {
+    if (n < 20) return [PT_ONES[n]];
+    if (n < 100) return [PT_TENS[Math.floor(n / 10)], ...(n % 10 ? ['e', PT_ONES[n % 10]] : [])];
+    if (n === 100) return ['cem'];
+    if (n < 1000) return [PT_HUNDREDS[Math.floor(n / 100)], ...(n % 100 ? ['e', ...ptNumber(n % 100)] : [])];
+    if (n < 1e6) {
+      const k = Math.floor(n / 1000), r = n % 1000;
+      return [...(k === 1 ? [] : ptNumber(k)), 'mil', ...(r ? (r < 100 || r % 100 === 0 ? ['e'] : []).concat(ptNumber(r)) : [])];
+    }
+    const m = Math.floor(n / 1e6);
+    return [...ptNumber(m), m === 1 ? 'milhao' : 'milhoes', ...(n % 1e6 ? ptNumber(n % 1e6) : [])];
+  }
+
+  const ES_ONES = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez',
+    'once', 'doce', 'trece', 'catorce', 'quince', 'dieciseis', 'diecisiete', 'dieciocho', 'diecinueve',
+    'veinte', 'veintiuno', 'veintidos', 'veintitres', 'veinticuatro', 'veinticinco', 'veintiseis', 'veintisiete', 'veintiocho', 'veintinueve'];
+  const ES_TENS = ['', '', '', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+  const ES_HUNDREDS = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+
+  function esNumber(n) {
+    if (n < 30) return [ES_ONES[n]];
+    if (n < 100) return [ES_TENS[Math.floor(n / 10)], ...(n % 10 ? ['y', ES_ONES[n % 10]] : [])];
+    if (n === 100) return ['cien'];
+    if (n < 1000) return [ES_HUNDREDS[Math.floor(n / 100)], ...(n % 100 ? esNumber(n % 100) : [])];
+    if (n < 1e6) {
+      const k = Math.floor(n / 1000), r = n % 1000;
+      return [...(k === 1 ? [] : esNumber(k)), 'mil', ...(r ? esNumber(r) : [])];
+    }
+    const m = Math.floor(n / 1e6);
+    return [...(m === 1 ? ['un'] : esNumber(m)), m === 1 ? 'millon' : 'millones', ...(n % 1e6 ? esNumber(n % 1e6) : [])];
+  }
+
+  const LANGS = {
+    en: { number: enNumber, percent: ['percent'], splitYears: true },
+    pt: { number: ptNumber, percent: ['por', 'cento'], splitYears: false },
+    es: { number: esNumber, percent: ['por', 'ciento'], splitYears: false },
+  };
+
+  function numberWords(n, lang = 'en') {
+    return (LANGS[lang] || LANGS.en).number(n);
   }
 
   function clean(s) {
@@ -42,7 +94,8 @@
 
   // One written word -> the words a recogniser would hear ("38%" -> thirty eight percent,
   // "In-Company" -> in company, "João" -> joao).
-  function spoken(word) {
+  function spoken(word, lang = 'en') {
+    const L = LANGS[lang] || LANGS.en;
     const percent = /%/.test(word);
     // "4,500" and "4.500" are one number, not two.
     const parts = clean(word.replace(/(\d)[,.](?=\d{3}\b)/g, '$1')).split(' ').filter(Boolean);
@@ -50,23 +103,23 @@
     for (const p of parts) {
       if (/^\d+$/.test(p) && p.length <= 7) {
         const n = Number(p);
-        // Years are usually read as "twenty twenty six"
-        if (n >= 1900 && n <= 2099 && p.length === 4 && n % 100 !== 0) out.push(...numberWords(Math.floor(n / 100)), ...numberWords(n % 100));
-        else out.push(...numberWords(n));
+        // English years are usually read as "twenty twenty six"
+        if (L.splitYears && n >= 1900 && n <= 2099 && p.length === 4 && n % 100 !== 0) out.push(...L.number(Math.floor(n / 100)), ...L.number(n % 100));
+        else out.push(...L.number(n));
       } else if (/^\d/.test(p)) {
-        out.push(...p.split(/(\d+)/).filter(Boolean).flatMap((x) => (/^\d+$/.test(x) ? numberWords(Number(x)) : [x])));
+        out.push(...p.split(/(\d+)/).filter(Boolean).flatMap((x) => (/^\d+$/.test(x) ? L.number(Number(x)) : [x])));
       } else {
         out.push(p);
       }
     }
-    if (percent) out.push('percent');
+    if (percent) out.push(...L.percent);
     return out;
   }
 
   // Speech units for the whole script: [{ u: 'company', w: wordIndex }]
-  function units(text) {
+  function units(text, lang = 'en') {
     const out = [];
-    words(text).forEach((w, i) => spoken(w.text).forEach((u) => out.push({ u, w: i })));
+    words(text).forEach((w, i) => spoken(w.text, lang).forEach((u) => out.push({ u, w: i })));
     return out;
   }
 
@@ -101,7 +154,15 @@
     return (sec < 0 ? '-' : '') + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
 
-  const api = { paragraphs, words, units, spoken, heardWords, clean, sections, clock };
+  // Speech models per language (Vosk small models, Apache-2.0). English ships with
+  // the app; the others download on first use into the user's data folder.
+  const MODELS = {
+    en: { label: 'English', file: 'en-us.tar.gz', dir: 'vosk-model-small-en-us-0.15', mb: 40, url: 'https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip' },
+    pt: { label: 'Português', file: 'pt.tar.gz', dir: 'vosk-model-small-pt-0.3', mb: 31, url: 'https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip' },
+    es: { label: 'Español', file: 'es.tar.gz', dir: 'vosk-model-small-es-0.42', mb: 38, url: 'https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip' },
+  };
+
+  const api = { paragraphs, words, units, spoken, heardWords, clean, sections, clock, numberWords, MODELS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.OnTopScript = api;
 })(typeof window !== 'undefined' ? window : globalThis);

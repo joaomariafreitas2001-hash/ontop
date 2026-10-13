@@ -557,7 +557,7 @@ kbd {
 #scripts li:hover { background: var(--fill); }
 #scripts li.active { background: var(--fill-strong); }
 #scripts li svg { width: 15px; height: 15px; color: var(--secondary); }
-#scripts li.linked svg { color: var(--accent); }
+#scripts li.is-linked svg { color: var(--accent); }
 #scripts li .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #scripts li .t[contenteditable="true"] { outline: 1.5px solid var(--accent); border-radius: 4px; padding: 0 3px; text-overflow: clip; background: var(--card); user-select: text; }
 #scripts li .del {
@@ -637,4 +637,30 @@ textarea[readonly] { cursor: default; }
 
 #time-left.late { color: var(--red); }
 #time-left.early { color: var(--green); }
+
+
+/* ---------- Language ---------- */
+
+.lang-ctl { display: flex; align-items: center; gap: 8px; }
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 26px;
+  padding: 0 26px 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 9px center;
+  color: var(--label);
+  font: 500 12.5px var(--font);
+  cursor: default;
+}
+select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+select option { background: var(--card); color: var(--label); }
+.download[hidden] { display: none; }
+.dl-bar { height: 4px; border-radius: 2px; background: var(--fill-strong); overflow: hidden; }
+.dl-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.25s linear; }
+.dl-text { display: block; margin-top: 6px; color: var(--secondary); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+/* macOS: room for the traffic lights on the left, none needed on the right */
+body.mac .toolbar { padding: 0 18px 0 86px; }
 

@@ -4,6 +4,15 @@
 const $ = (id) => document.getElementById(id);
 const scriptEl = $('script');
 
+// macOS: traffic lights on the left, ⌘/⌥ in shortcut labels.
+const IS_MAC = window.ontop.platform === 'darwin';
+document.body.classList.add(IS_MAC ? 'mac' : 'win');
+if (IS_MAC) {
+  document.querySelectorAll('kbd').forEach((k) => { k.textContent = { Ctrl: '⌘', Alt: '⌥' }[k.textContent] || k.textContent; });
+  document.querySelectorAll('[title]').forEach((el) => { el.title = el.title.replace(/Ctrl\+Alt\+/g, '⌘⌥'); });
+  document.querySelector('.doc-meta .hint').textContent = '⌘-click a sentence to jump there';
+}
+
 let settings = null;
 let playing = false;
 let words = 0;
@@ -220,7 +229,7 @@ scriptEl.addEventListener('scroll', () => { backdrop.scrollTop = scriptEl.scroll
 
 // Ctrl+click anywhere in a sentence: jump the prompter there.
 scriptEl.addEventListener('click', (e) => {
-  if (!e.ctrlKey) return;
+  if (!(e.ctrlKey || e.metaKey)) return;
   const caret = scriptEl.selectionStart;
   const i = scriptWords.findIndex((w) => w.end >= caret);
   if (i < 0) return;
@@ -247,7 +256,7 @@ function renderLibrary() {
   ul.innerHTML = '';
   for (const s of library.scripts) {
     const li = document.createElement('li');
-    li.className = (s.id === library.activeId ? 'active ' : '') + (s.source ? 'linked' : '');
+    li.className = (s.id === library.activeId ? 'active ' : '') + (s.source ? 'is-linked' : '');
     li.innerHTML = `<svg><use href="#${s.source ? 'i-link' : 'i-doc'}"/></svg><span class="t"></span><button class="del" title="Delete">×</button>`;
     li.querySelector('.t').textContent = s.name;
     li.title = s.source ? `${s.name}\nLinked to ${s.source.path}` : s.name;
@@ -356,6 +365,38 @@ window.ontop.on('timer', (t) => {
   updateTimeLeft();
 });
 
+// --- speech language ----------------------------------------------------------
+
+let models = {};
+
+function renderLanguage() {
+  if (!settings) return;
+  const sel = $('language');
+  const lang = settings.language || 'en';
+  sel.innerHTML = '';
+  for (const [code, m] of Object.entries(models)) {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = m.installed ? m.label : `${m.label} (${m.mb} MB)`;
+    sel.appendChild(opt);
+  }
+  sel.value = lang;
+  const m = models[lang];
+  const dl = m && m.downloading;
+  $('btn-download').hidden = !m || m.installed || !!dl;
+  $('btn-download').textContent = m ? `Download ${m.mb} MB` : 'Download';
+  $('download-row').hidden = !dl;
+  if (dl) {
+    const pct = dl.total ? Math.min(100, (dl.received / dl.total) * 100) : 0;
+    $('dl-progress').style.width = pct + '%';
+    $('dl-text').textContent = `Downloading ${m.label} speech model… ${(dl.received / 1e6).toFixed(1)} of ${(dl.total / 1e6).toFixed(0)} MB`;
+  }
+}
+
+$('language').addEventListener('change', (e) => setSettings({ language: e.target.value }));
+$('btn-download').addEventListener('click', () => send('models', { op: 'download', lang: settings.language }));
+window.ontop.on('models', (m) => { models = m; renderLanguage(); });
+
 // --- from main ------------------------------------------------------------
 
 window.ontop.on('state', (s) => {
@@ -375,6 +416,7 @@ window.ontop.on('state', (s) => {
   }
   fill();
   updateCounts();
+  renderLanguage();
 });
 
 window.ontop.on('status', (st) => {
@@ -390,7 +432,7 @@ window.ontop.on('status', (st) => {
   const pill = $('status-pill');
   pill.classList.toggle('playing', playing && !listening);
   pill.classList.toggle('listening', listening);
-  $('status-text').textContent = !playing ? 'Paused' : listening ? 'Listening' : voice ? 'Following you' : 'Scrolling';
+  $('status-text').textContent = !playing ? 'Paused' : listening ? 'Listening' : settings && settings.mode === 'classic' ? 'Scrolling' : 'Following you';
   updateTimeLeft();
 
   const lock = $('btn-lock');
@@ -423,8 +465,11 @@ window.ontop.on('status', (st) => {
 
   const modelState = $('model-state');
   const model = st.model || 'idle';
-  modelState.textContent = { idle: 'Loads on play', loading: 'Loading voice…', ready: 'Offline · English', error: 'Voice model failed' }[model];
-  modelState.className = 'model-state' + (model === 'ready' ? ' ok' : model === 'error' ? ' bad' : '');
+  const langInfo = models[(settings && settings.language) || 'en'];
+  const langLabel = langInfo ? langInfo.label : 'English';
+  const missing = langInfo && !langInfo.installed;
+  modelState.textContent = missing ? 'Not downloaded' : { idle: 'Loads on play', loading: 'Loading voice…', ready: `Offline · ${langLabel}`, error: 'Voice model failed' }[model];
+  modelState.className = 'model-state' + (missing ? '' : model === 'ready' ? ' ok' : model === 'error' ? ' bad' : '');
   if (st.heard) $('heard-text').textContent = '“' + st.heard + '”';
 
   const cal = $('btn-calibrate');

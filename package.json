@@ -1,7 +1,7 @@
 {
   "name": "ontop",
   "productName": "OnTop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A teleprompter that sits under your webcam, follows the words you say, and is invisible to screen sharing.",
   "main": "src/main.js",
   "author": "JRF",
@@ -9,20 +9,24 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/tracker.test.js && node test/markdown.test.js",
+    "test": "node test/tracker.test.js && node test/markdown.test.js && node test/languages.test.js",
     "fetch-model": "node scripts/fetch-model.js",
     "smoke": "electron . --smoke",
     "test:track": "electron . --track-test",
     "test:library": "electron . --library-test",
     "selftest": "electron . --selftest",
-    "dist": "npm run fetch-model && npm test && electron-builder --win"
+    "demo": "electron . --demo-gif",
+    "screenshots": "electron . --screenshots",
+    "dist": "npm run fetch-model && npm test && electron-builder --win",
+    "dist:mac": "npm run fetch-model && npm test && electron-builder --mac"
   },
   "dependencies": {
     "vosk-browser": "^0.0.8"
   },
   "devDependencies": {
     "electron": "^37.10.3",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "gifenc": "^1.0.3"
   },
   "build": {
     "appId": "app.ontop.teleprompter",
@@ -43,7 +47,7 @@
         "from": "models",
         "to": "models",
         "filter": [
-          "*.tar.gz"
+          "en-us.tar.gz"
         ]
       }
     ],
@@ -65,6 +69,31 @@
       "createStartMenuShortcut": true,
       "shortcutName": "OnTop",
       "artifactName": "OnTop-Setup-${version}.exe"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon-1024.png",
+      "category": "public.app-category.productivity",
+      "artifactName": "OnTop-${version}-mac-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "OnTop listens to your voice so the script can follow the words you say. Audio is processed on your Mac and never leaves it."
+      }
     }
   }
 }

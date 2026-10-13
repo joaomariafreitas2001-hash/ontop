@@ -11,7 +11,16 @@ const viewport = $('viewport');
 const root = document.documentElement;
 const S = window.OnTopScript;
 
-const MODEL_URL = 'ontop://app/models/en-us.tar.gz';
+const MODEL_BASE = 'ontop://app/models/';
+
+// Demo stage (overlay.html?demo): used to record the README animation. Adds a
+// camera notch above the prompter and a live caption of what the app hears.
+const DEMO = new URLSearchParams(location.search).has('demo');
+if (DEMO) {
+  document.body.classList.add('demo', 'locked');
+  document.body.insertAdjacentHTML('afterbegin', '<div id="cam"><i></i></div>');
+  document.body.insertAdjacentHTML('beforeend', '<div id="caption"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span id="caption-text">Listening…</span></div>');
+}
 
 let settings = null;
 let script = '';
@@ -49,7 +58,7 @@ function render() {
   textEl.innerHTML = html;
   wordEls = [...textEl.querySelectorAll('.w')];
   readUpTo = -1;
-  tracker = new window.OnTopTracker(script);
+  tracker = new window.OnTopTracker(script, settings.language || 'en');
   measure();
 }
 
@@ -104,17 +113,30 @@ function markRead(upTo) {
 let tracker = null;
 const speech = { model: null, rec: null, recRate: 0, status: 'idle', error: null, heard: '', lastMatch: 0 };
 
-// Loads once; every caller waits on the same promise. A failed load can be retried.
+// One model at a time, for the current language. Loads once per language; every
+// caller waits on the same promise. A failed load (e.g. not downloaded yet) can be retried.
 let modelPromise = null;
+let modelLang = null;
 function loadModel() {
+  const lang = (settings && settings.language) || 'en';
+  if (modelLang !== lang) {
+    if (speech.rec) { speech.rec.remove(); speech.rec = null; }
+    if (speech.model) speech.model.terminate();
+    speech.model = null;
+    modelPromise = null;
+    modelLang = lang;
+  }
   if (!modelPromise) {
     speech.status = 'loading';
-    modelPromise = window.Vosk.createModel(MODEL_URL, -1).then((model) => {
+    const url = MODEL_BASE + S.MODELS[lang].file;
+    modelPromise = window.Vosk.createModel(url, -1).then((model) => {
+      if (modelLang !== lang) { model.terminate(); return; } // language changed meanwhile
       speech.model = model;
       speech.status = 'ready';
       speech.error = null;
       ensureRecognizer();
     }).catch((e) => {
+      if (modelLang !== lang) return;
       speech.status = 'error';
       speech.error = e.message || String(e);
       modelPromise = null;
@@ -299,6 +321,7 @@ function updateHud(speaking, now) {
   const waiting = playing && speaking === false;
   dot.className = playing ? (waiting ? 'waiting' : 'playing') : '';
   $('hud-text').textContent = label;
+  if (DEMO && speech.heard) $('caption-text').textContent = speech.heard;
   drawBars();
   const progress = mode === 'track' && tracker && wordEls.length
     ? Math.max(0, tracker.word + 1) / wordEls.length
@@ -319,6 +342,7 @@ function updateHud(speaking, now) {
       progress,
       para: currentParagraph(),
       word: mode === 'track' && tracker && tracker.word >= 0 ? tracker.word + 1 : wordAt(pos),
+      testAudioDone,
     });
   }
 }
@@ -419,10 +443,12 @@ window.ontop.on('timer', (t) => {
 window.ontop.on('state', (s) => {
   const scriptChanged = s.script !== script;
   const prevMode = settings && settings.mode;
+  const prevLang = settings ? settings.language : undefined;
   settings = s.settings;
   script = s.script;
   applySettings();
-  if (scriptChanged) render();
+  const langChanged = prevLang !== undefined && prevLang !== settings.language;
+  if (scriptChanged || langChanged) render();
   else measure();
   if (settings.mode === 'track') loadModel();
   if (prevMode && prevMode !== settings.mode) {
@@ -449,6 +475,7 @@ function kick() {
 }
 
 // Test hook: play a WAV file into the recogniser instead of the mic.
+let testAudioDone = false;
 async function testAudio(url, speed) {
   await loadModel();
   const ctx = new AudioContext({ sampleRate: 16000 });
@@ -460,10 +487,16 @@ async function testAudio(url, speed) {
   const data = audio.getChannelData(0);
   const chunk = 1600;
   for (let i = 0; i < data.length; i += chunk) {
-    rec.acceptWaveformFloat(data.slice(i, i + chunk), 16000);
+    const part = data.slice(i, i + chunk);
+    rec.acceptWaveformFloat(part, 16000);
+    let sum = 0;
+    for (let k = 0; k < part.length; k++) sum += part[k] * part[k];
+    mic.level = mic.level * 0.5 + Math.sqrt(sum / part.length) * 0.5;
     await new Promise((r) => setTimeout(r, 100 / speed));
   }
   rec.retrieveFinalResult();
+  mic.level = 0;
+  testAudioDone = true;
 }
 
 frame();

@@ -97,6 +97,17 @@
               <span class="thumb"></span>
             </div>
           </div>
+          <div class="cell row track-only">
+            <span class="lbl">Language</span>
+            <span class="lang-ctl">
+              <select id="language" aria-label="Speech language"></select>
+              <button class="pill-btn" id="btn-download" hidden>Download</button>
+            </span>
+          </div>
+          <div class="cell track-only download" id="download-row" hidden>
+            <div class="dl-bar"><i id="dl-progress"></i></div>
+            <span id="dl-text" class="dl-text"></span>
+          </div>
           <div class="cell track-only heard">
             <div class="heard-head">
               <span class="lbl"><svg class="mic-glyph"><use href="#i-mic"/></svg>Heard</span>

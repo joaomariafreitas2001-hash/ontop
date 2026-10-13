@@ -1,0 +1,82 @@
+# Builds OnTop for macOS (and for Windows when signing is set up) and attaches the
+# files to the GitHub release. Runs when a release is published, or by hand with a tag.
+name: Release builds
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the builds to (e.g. v1.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  mac:
+    needs: test
+    runs-on: macos-14
+    env:
+      # No Apple Developer ID yet: the app is ad-hoc signed and not notarized.
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run fetch-model
+      - run: npx electron-builder --mac --publish never
+      - name: Show signature
+        run: codesign -dv --verbose=2 dist/mac-arm64/OnTop.app 2>&1 | head -n 8 || true
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/OnTop-*-mac-*.dmg dist/OnTop-*-mac-*.zip --clobber
+
+  windows:
+    # Turns on once a code-signing certificate is added (see docs/CODE_SIGNING.md):
+    # set the repository variable WINDOWS_SIGNING=true and the two secrets below.
+    needs: test
+    if: ${{ vars.WINDOWS_SIGNING == 'true' }}
+    runs-on: windows-latest
+    env:
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run fetch-model
+      - run: npx electron-builder --win --publish never
+      - name: Attach to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/OnTop-Setup-*.exe --clobber
