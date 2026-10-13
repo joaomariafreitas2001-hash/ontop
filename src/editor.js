@@ -321,6 +321,7 @@ function deltaChip(sec) {
 
 // How far off plan a run finished: last section reached vs its planned start.
 function runDelta(r) {
+  if (r.target) return r.total - r.target; // rehearsal: total vs the target length
   const reached = r.sections.filter((s) => s.planned !== null && s.actual !== null);
   if (!reached.length) return null;
   const last = reached[reached.length - 1];
@@ -406,6 +407,7 @@ window.ontop.on('state', (s) => {
   renderLibrary();
   runs = (s.runs || []).filter((r) => r.scriptId === s.activeId);
   renderRuns();
+  if (window.OnTopTrend) window.OnTopTrend();
   if (!timer.running) { sectionActuals = lastRunActuals(); renderSections(); }
   if (switched) { liveWord = -1; currentPara = -1; }
   if ((switched || scriptEl.readOnly || document.activeElement !== scriptEl) && scriptEl.value !== s.script) {
@@ -418,6 +420,7 @@ window.ontop.on('state', (s) => {
   updateCounts();
   renderLanguage();
   if (window.OnTopVoiceSummary) window.OnTopVoiceSummary();
+  if (window.OnTopBuilderSync) window.OnTopBuilderSync();
 });
 
 window.ontop.on('status', (st) => {

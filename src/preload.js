@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const SEND = new Set(['state:set', 'cmd', 'overlay:status', 'library', 'models', 'setup:event']);
-const RECEIVE = new Set(['state', 'status', 'cmd', 'locked', 'timer', 'models', 'setup']);
+const RECEIVE = new Set(['state', 'status', 'cmd', 'locked', 'timer', 'models', 'setup', 'rehearsal:result']);
 
 contextBridge.exposeInMainWorld('ontop', {
   platform: process.platform,

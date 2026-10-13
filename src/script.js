@@ -92,9 +92,41 @@
     return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
   }
 
+  // --- acronyms --------------------------------------------------------------
+  // Short acronyms are spelled out ("ICP" -> I, C, P), so the tracker expects letters and
+  // accepts the ways a recogniser writes letter names ("see" for C, "pee" for P).
+  // Longer ones with vowels are usually said as words (EMIR, DORA, NATO) and stay words.
+
+  const LETTER_NAMES = {
+    en: { a: ['ay', 'eh'], b: ['bee', 'be'], c: ['see', 'sea', 'si'], d: ['dee', 'de'], e: ['ee'], f: ['ef', 'eff'], g: ['gee', 'jee'],
+      h: ['aitch', 'each'], i: ['eye', 'aye'], j: ['jay'], k: ['kay', 'ok'], l: ['el', 'elle', 'ell'], m: ['em'], n: ['en'],
+      o: ['oh', 'owe'], p: ['pee', 'pea'], q: ['queue', 'cue', 'kew'], r: ['are', 'ar'], s: ['es', 'ess'], t: ['tee', 'tea'],
+      u: ['you', 'yu'], v: ['vee'], w: ['double'], x: ['ex'], y: ['why'], z: ['zed', 'zee'] },
+    pt: { b: ['be'], c: ['ce'], d: ['de'], f: ['efe'], g: ['ge'], h: ['aga'], j: ['jota'], k: ['ca', 'capa'], l: ['ele'], m: ['eme'],
+      n: ['ene'], p: ['pe'], q: ['que'], r: ['erre'], s: ['esse'], t: ['te'], v: ['ve'], w: ['dablio'], x: ['xis'], y: ['ipsilon'], z: ['ze'] },
+    es: { b: ['be'], c: ['ce'], d: ['de'], f: ['efe'], g: ['ge'], h: ['hache'], j: ['jota'], k: ['ka'], l: ['ele'], m: ['eme'],
+      n: ['ene'], p: ['pe'], q: ['cu'], r: ['erre'], s: ['ese'], t: ['te'], v: ['uve'], w: ['doble'], x: ['equis'], y: ['ye'], z: ['zeta'] },
+  };
+
+  // Letter -> every way it may be heard, including the bare letter.
+  function letterNames(lang = 'en') {
+    const names = LETTER_NAMES[lang] || LETTER_NAMES.en;
+    const out = {};
+    for (const l of 'abcdefghijklmnopqrstuvwxyz') out[l] = [l, ...(names[l] || [])];
+    return out;
+  }
+
+  function isSpelledAcronym(word) {
+    const bare = word.replace(/^[^\p{L}\d]+|[^\p{L}\d]+$/gu, '').replace(/s$/, '');
+    if (!/^\p{Lu}{2,6}$/u.test(bare)) return false;
+    if (bare.length <= 3) return true;           // ICP, CSA, EU, ECB
+    return !/[AEIOU]/.test(bare.slice(1, -1)) || !/[AEIOU]/.test(bare); // BNPP, HSBC; EMIR, DORA are words
+  }
+
   // One written word -> the words a recogniser would hear ("38%" -> thirty eight percent,
-  // "In-Company" -> in company, "João" -> joao).
+  // "In-Company" -> in company, "João" -> joao, "ICP" -> i c p).
   function spoken(word, lang = 'en') {
+    if (isSpelledAcronym(word)) return clean(word.replace(/^[^\p{L}\d]+|[^\p{L}\d]+$/gu, '').replace(/s$/, '')).split('');
     const L = LANGS[lang] || LANGS.en;
     const percent = /%/.test(word);
     // "4,500" and "4.500" are one number, not two.
@@ -168,6 +200,7 @@
       const t = parts[parts.length - 1].match(/^(\d+):(\d{2})$/);
       if (t) parts.pop();
       out.push({
+        label: parts.length > 1 ? parts[0] : '',
         title: parts.length > 1 ? parts.slice(1).join(' · ') : parts[0],
         num: (parts[0].match(/\d+/) || [''])[0],
         time: t ? t[0] : '',
@@ -192,7 +225,7 @@
     es: { label: 'Español', file: 'es.tar.gz', dir: 'vosk-model-small-es-0.42', mb: 38, url: 'https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip' },
   };
 
-  const api = { paragraphs, words, units, spoken, heardWords, clean, sections, clock, numberWords, trickyWords, MODELS };
+  const api = { paragraphs, words, units, spoken, heardWords, clean, sections, clock, numberWords, trickyWords, letterNames, isSpelledAcronym, MODELS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.OnTopScript = api;
 })(typeof window !== 'undefined' ? window : globalThis);

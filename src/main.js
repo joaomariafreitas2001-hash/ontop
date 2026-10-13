@@ -31,8 +31,10 @@ const SELF_TEST = process.argv.includes('--selftest');
 const DEMO_GIF = process.argv.includes('--demo-gif');
 const SCREENSHOTS = process.argv.includes('--screenshots');
 const SETUP_TEST = process.argv.includes('--setup-test');
+const REHEARSE_TEST = process.argv.includes('--rehearse-test');
+const BUILDER_TEST = process.argv.includes('--builder-test');
 // Test and recording modes never write the user's settings file.
-const TESTING = () => SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || !!MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST;
+const TESTING = () => SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || !!MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST;
 const MODELS_TEST = (process.argv.find((a) => a.startsWith('--models-test=')) || '').split('=')[1] || null;
 const ICON = path.join(ROOT, 'build', 'icon.ico');
 
@@ -170,6 +172,7 @@ const DEFAULTS = {
     height: 260,
     readingLine: 0.35,      // where the "current line" marker sits (0 = top, 1 = bottom)
     mirror: false,
+    showSlide: true,        // current slide pinned at the top of the overlay
     hideFromCapture: true,
     numberKeys: true,       // 1 = up a line, 2 = down a line, from any app
     micThreshold: 0.015,    // RMS level that counts as "speaking"
@@ -349,9 +352,12 @@ function send(win, channel, data) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, data);
 }
 
+// The renderers also get the active rehearsal (display mode, target), if any.
+const publicState = () => ({ ...state, rehearsal });
+
 function broadcastState() {
-  send(overlay, 'state', state);
-  send(editor, 'state', state);
+  send(overlay, 'state', publicState());
+  send(editor, 'state', publicState());
 }
 
 function pushStatus() {
@@ -420,7 +426,7 @@ function createOverlay() {
   overlay.setIgnoreMouseEvents(state.locked, { forward: true });
   overlay.loadURL('ontop://app/src/overlay.html');
   overlay.webContents.on('did-finish-load', () => {
-    send(overlay, 'state', state);
+    send(overlay, 'state', publicState());
     send(overlay, 'locked', state.locked);
   });
 
@@ -472,7 +478,7 @@ function createEditor() {
   editor.setContentProtection(!!state.settings.hideFromCapture);
   editor.loadURL('ontop://app/src/editor.html');
   editor.webContents.on('did-finish-load', () => {
-    send(editor, 'state', state);
+    send(editor, 'state', publicState());
     pushStatus();
     pushModels();
   });
@@ -492,6 +498,8 @@ function applyCaptureProtection() {
 // --- commands -------------------------------------------------------------
 
 function command(cmd) {
+  if (cmd && typeof cmd === 'object' && cmd.rehearse === 'start') return startRehearsal(cmd);
+  if (cmd && typeof cmd === 'object' && cmd.rehearse === 'finish') return finishRun();
   if (cmd === 'lock') return setLocked(!state.locked);
   if (cmd === 'visibility') {
     if (!overlay) return;
@@ -575,9 +583,25 @@ ipcMain.on('overlay:status', (_e, status) => {
 // reset, when you switch script, or at the end of the script, and is saved.
 
 let run = null;
+// Rehearsal started with the Rehearse button: { target: seconds }
+let rehearsal = null;
+
+// Planned start of each section. Times written in the script win; with a target length
+// and no times, the target is shared out in proportion to each section's words.
+function plannedStarts(sections, target) {
+  const planned = sections.map((s) => s.planned);
+  if (!target || planned.every((p) => p !== null)) return planned;
+  const paras = Script.paragraphs(state.script);
+  const wordsIn = (from, to) => paras.slice(from, to).join(' ').replace(/\[[^\]]*\]/g, ' ').split(/\s+/).filter(Boolean).length;
+  const counts = sections.map((s, i) => wordsIn(s.para, i + 1 < sections.length ? sections[i + 1].para : paras.length));
+  const total = counts.reduce((a, b) => a + b, 0) || 1;
+  let at = 0;
+  return counts.map((c) => { const start = at; at += (c / total) * target; return Math.round(start); });
+}
 
 function startRun() {
   const sections = Script.sections(state.script);
+  const planned = plannedStarts(sections, rehearsal && rehearsal.target);
   run = {
     id: newId(),
     scriptId: state.activeId,
@@ -586,7 +610,50 @@ function startRun() {
     elapsed: 0,
     lastTick: null,
     current: -1,
-    sections: sections.map((s) => ({ title: s.title, num: s.num, planned: s.planned, actual: null, para: s.para })),
+    // Becomes true once the overlay reports playing near the start; until then a stale
+    // "end of script" status (e.g. from the previous run) can't end this one.
+    armed: false,
+    target: rehearsal ? rehearsal.target : null,
+    rehearsal: !!rehearsal,
+    sections: sections.map((s, i) => ({ title: s.title, label: s.label, num: s.num, planned: planned[i], actual: null, para: s.para })),
+  };
+}
+
+function startRehearsal({ target }) {
+  finishRun();
+  rehearsal = { target: Math.max(10, Math.round(Number(target) || 0)) || null };
+  const s = active();
+  if (rehearsal.target) s.target = rehearsal.target;
+  save();
+  broadcastState();
+  send(overlay, 'cmd', 'reset');
+  startRun();
+  setTimeout(() => send(overlay, 'cmd', 'play'), 150);
+  pushTimer(true);
+}
+
+// Summary for the results sheet: total vs target, change from last time, per section.
+function rehearsalResult(saved) {
+  const previous = state.runs.find((r) => r.id !== saved.id && r.scriptId === saved.scriptId && r.rehearsal && r.completed);
+  const completed = state.runs.filter((r) => r.scriptId === saved.scriptId && r.rehearsal && r.completed);
+  const secs = saved.sections;
+  return {
+    total: saved.total,
+    target: saved.target,
+    completed: saved.completed,
+    previous: previous ? previous.total : null,
+    best: completed.length ? Math.min(...completed.map((r) => r.total)) : null,
+    count: completed.length,
+    sections: secs.map((s, i) => {
+      const nextActual = i + 1 < secs.length ? secs[i + 1].actual : saved.total;
+      const nextPlanned = i + 1 < secs.length ? secs[i + 1].planned : saved.target;
+      return {
+        title: s.title,
+        label: s.label || '',
+        took: s.actual === null || nextActual === null ? null : nextActual - s.actual,
+        planned: s.planned === null || nextPlanned === null || nextPlanned === undefined ? null : nextPlanned - s.planned,
+      };
+    }),
   };
 }
 
@@ -605,7 +672,8 @@ function tickRun(st) {
   } else {
     run.lastTick = null;
   }
-  if (st.progress >= 0.995 && !st.playing) finishRun(true);
+  if (!run.armed && st.playing && st.progress < 0.9) run.armed = true;
+  if (run.armed && st.progress >= 0.995 && !st.playing) finishRun(true);
   pushTimer();
 }
 
@@ -622,9 +690,17 @@ function runDelta() {
 }
 
 function timerPayload() {
-  if (!run) return { running: false };
+  if (!run) return { running: false, rehearsal: !!rehearsal };
   const cur = run.sections[run.current];
-  return { running: true, elapsed: run.elapsed, delta: runDelta(), section: cur ? cur.title : null, sections: run.sections.map((s) => s.actual) };
+  return {
+    running: true,
+    rehearsal: run.rehearsal,
+    target: run.target,
+    elapsed: run.elapsed,
+    delta: runDelta(),
+    section: cur ? cur.title : null,
+    sections: run.sections.map((s) => s.actual),
+  };
 }
 
 let lastTimerSent = 0;
@@ -639,21 +715,33 @@ function pushTimer(force) {
 
 function finishRun(completed = false) {
   if (!run) return;
-  if (run.elapsed >= 20) {
-    state.runs.unshift({
+  const wasRehearsal = run.rehearsal;
+  // A rehearsal that reached the last section counts as complete even if you stop it.
+  if (wasRehearsal && run.current >= run.sections.length - 1 && run.sections.length) completed = true;
+  let saved = null;
+  if (run.elapsed >= (wasRehearsal ? 5 : 20)) {
+    saved = {
       id: run.id,
       scriptId: run.scriptId,
       scriptName: run.scriptName,
       startedAt: run.startedAt,
       total: Math.round(run.elapsed),
       completed,
-      sections: run.sections.map(({ title, num, planned, actual }) => ({ title, num, planned, actual: actual === null ? null : Math.round(actual) })),
-    });
-    state.runs = state.runs.slice(0, 100);
+      rehearsal: wasRehearsal,
+      target: run.target,
+      sections: run.sections.map(({ title, label, num, planned, actual }) => ({ title, label, num, planned, actual: actual === null ? null : Math.round(actual) })),
+    };
+    state.runs.unshift(saved);
+    state.runs = state.runs.slice(0, 200);
     save();
-    broadcastState();
   }
   run = null;
+  if (wasRehearsal) {
+    rehearsal = null;
+    send(overlay, 'cmd', 'pause');
+    if (saved) send(editor, 'rehearsal:result', rehearsalResult(saved));
+  }
+  broadcastState();
   pushTimer(true);
 }
 
@@ -698,7 +786,7 @@ function voskTest() {
     if (message === 'DONE') app.quit();
   });
   // Pass --model=, --chunk=, --grammar= through as query parameters.
-  const query = process.argv.filter((a) => /^--(model|chunk|grammar)=/.test(a)).map((a) => a.slice(2)).join('&');
+  const query = process.argv.filter((a) => /^--(model|chunk|grammar|wav|script)=/.test(a)).map((a) => a.slice(2)).join('&');
   win.loadURL('ontop://app/test/vosk-test.html' + (query ? '?' + query : ''));
   setTimeout(() => { console.log('TIMEOUT'); app.quit(); }, 120000);
 }
@@ -933,6 +1021,67 @@ async function setupTest() {
   app.quit();
 }
 
+// Rehearsal test: two rehearsals of the sample talk played from test/speech.wav,
+// screenshots of the overlay, the results sheet and the trend. Nothing is saved (TESTING). Usage: npm run test:rehearse
+async function rehearseTest() {
+  const out = path.join(ROOT, 'smoke');
+  fs.mkdirSync(out, { recursive: true });
+  await new Promise((r) => (editor.webContents.isLoading() ? editor.webContents.once('did-finish-load', r) : r()));
+  const js = (code) => editor.webContents.executeJavaScript(code);
+  const shot = async (win, name) => fs.writeFileSync(path.join(out, name), (await win.webContents.capturePage()).toPNG());
+  const t0 = Date.now();
+  while (lastOverlayStatus.model !== 'ready' && Date.now() - t0 < 60000) await wait(250);
+  state.runs = [];
+  const results = [];
+  for (const [name, target] of [['first', 40], ['second', 35]]) {
+    command({ rehearse: 'start', target });
+    await wait(600);
+    send(overlay, 'cmd', { testAudio: 'ontop://app/test/speech.wav', speed: 1 });
+    await wait(17000);
+    await shot(overlay, `rehearse-${name}.png`);
+    const t1 = Date.now();
+    while (run && Date.now() - t1 < 40000) await wait(500);
+    await wait(800);
+    results.push(await js("({ open: !document.getElementById('results').hidden, text: document.getElementById('results-body').innerText.replace(/\\s+/g, ' ').slice(0, 400) })"));
+    await shot(editor, `rehearse-results-${name}.png`);
+    await js("document.getElementById('res-close').click()");
+    await wait(500);
+  }
+  await shot(editor, 'rehearse-trend.png');
+  fs.writeFileSync(path.join(out, 'rehearse.json'), JSON.stringify({ results, runs: state.runs.map((r) => ({ total: r.total, target: r.target, completed: r.completed, sections: r.sections })) }, null, 2));
+  app.quit();
+}
+
+// Slide builder test: switch to Slides, change a duration, add a slide, check the
+// script text it writes. Nothing is saved (TESTING). Usage: npm run test:builder
+async function builderTest() {
+  const out = path.join(ROOT, 'smoke');
+  fs.mkdirSync(out, { recursive: true });
+  await new Promise((r) => (editor.webContents.isLoading() ? editor.webContents.once('did-finish-load', r) : r()));
+  await wait(1200);
+  const js = (code) => editor.webContents.executeJavaScript(code);
+  const before = await js("document.getElementById('script').value");
+  await js("document.querySelector('#view-switch [data-view=slides]').click()");
+  await wait(500);
+  const cards = await js("document.querySelectorAll('.slide-card').length");
+  fs.writeFileSync(path.join(out, 'builder.png'), (await editor.webContents.capturePage()).toPNG());
+  // Results takes 0:20 instead of 0:15; then add a fourth slide with a title and text.
+  await js(`(() => {
+    const dur = document.querySelector('.slide-card[data-i="1"] .c-dur input');
+    dur.value = '0:20'; dur.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('btn-add-slide').click();
+    const card = document.querySelector('.slide-card[data-i="3"]');
+    const title = card.querySelector('.c-title'); title.value = 'Questions'; title.dispatchEvent(new Event('input', { bubbles: true }));
+    const text = card.querySelector('.c-text'); text.value = 'Thank you. I am happy to take your questions.'; text.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await wait(1200);
+  const after = await js("document.getElementById('script').value");
+  fs.writeFileSync(path.join(out, 'builder-after.png'), (await editor.webContents.capturePage()).toPNG());
+  await js("document.querySelector('#view-switch [data-view=text]').click()");
+  fs.writeFileSync(path.join(out, 'builder.json'), JSON.stringify({ cards, before, after, saved: state.script === after }, null, 2));
+  app.quit();
+}
+
 // Self-test for the installed app: does the speech model load, do the hotkeys
 // register? Prints one JSON line and quits. Usage: OnTop.exe --selftest
 async function selfTest() {
@@ -971,7 +1120,7 @@ async function selfTest() {
 // --- app lifecycle --------------------------------------------------------
 
 // One OnTop at a time: a second launch just brings the first to the front.
-const gotLock = SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST || app.requestSingleInstanceLock();
+const gotLock = SMOKE || VOSK_TEST || TRACK_TEST || LIBRARY_TEST || SELF_TEST || MODELS_TEST || DEMO_GIF || SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
@@ -997,7 +1146,7 @@ if (!gotLock) {
 
     if (VOSK_TEST) return voskTest();
 
-    state = SCREENSHOTS || SETUP_TEST ? sampleState() : load();
+    state = SCREENSHOTS || SETUP_TEST || REHEARSE_TEST || BUILDER_TEST ? sampleState() : load();
     if (SETUP_TEST) {
       const text = fs.readFileSync(path.join(ROOT, 'test', 'setup-script.txt'), 'utf8');
       state.scripts[0].text = text;
@@ -1017,6 +1166,8 @@ if (!gotLock) {
     if (MODELS_TEST) modelsTest(MODELS_TEST);
     if (SCREENSHOTS) screenshots();
     if (SETUP_TEST) setupTest();
+    if (REHEARSE_TEST) rehearseTest();
+    if (BUILDER_TEST) builderTest();
   });
 
   app.on('before-quit', () => { if (state && saveTimer) saveNow(); });

@@ -198,3 +198,36 @@ body.demo #frame {
 }
 #caption svg { width: 15px; height: 15px; flex: none; color: #ff9f0a; }
 #caption-text { overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+
+/* Current slide, pinned at the top */
+#slide-head {
+  position: absolute;
+  top: 10px;
+  left: 34px;
+  right: 28px;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: 700 11px/1.3 var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+#slide-head[hidden] { display: none; }
+#slide-label { color: var(--cue); flex: none; }
+#slide-title { color: rgba(255, 255, 255, 0.82); overflow: hidden; text-overflow: ellipsis; }
+#slide-head.change { animation: slide-change 0.45s var(--ease); }
+@keyframes slide-change { from { opacity: 0; transform: translateY(-6px); } }
+body:not(.locked) #slide-head { top: 22px; }
+/* The pinned header replaces the in-text labels near the top, so fade those a little more */
+body.has-slide-head #viewport {
+  -webkit-mask-image: linear-gradient(to bottom,
+    rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 9%,
+    rgba(0, 0, 0, 0.32) calc(var(--reading-line) - 14%),
+    rgba(0, 0, 0, 1) calc(var(--reading-line) - 3%),
+    rgba(0, 0, 0, 1) 76%,
+    rgba(0, 0, 0, 0) 100%);
+}

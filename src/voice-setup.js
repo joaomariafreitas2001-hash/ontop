@@ -234,8 +234,11 @@
     if (f.step === 'words' && ev.id === 'w' + f.ti) {
       const word = f.tricky[f.ti];
       const expected = S.spoken(word, f.lang);
+      // Letters count when said by name too: "i see pee" is ICP understood.
+      const names = S.letterNames(f.lang);
+      const same = heard.length === expected.length && heard.every((h, i) => h === expected[i] || (expected[i].length === 1 && (names[expected[i]] || []).includes(h)));
       if (!heard.length) f.result = { kind: 'none' };
-      else if (heard.join(' ') === expected.join(' ')) { f.result = { kind: 'ok' }; f.wordState[word] = 'ok'; }
+      else if (same) { f.result = { kind: 'ok' }; f.wordState[word] = 'ok'; }
       else {
         f.aliases[key(word)] = heard.slice(0, 4);
         f.wordState[word] = 'learned';

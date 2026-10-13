@@ -23,6 +23,7 @@
     <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15v2.5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5V15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
     <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3.5h6.5L18 8v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5a1.5 1.5 0 0 1 1-1.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13 3.5V8h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M12 13.5V9.5M9.5 3h5M18.5 6.5l1.2-1.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     <symbol id="i-logo" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="16" rx="4.5" fill="currentColor"/><path d="M7 9.5h10M7 12.5h7.5M7 15.5h9" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".95"/></symbol>
   </svg>
 
@@ -40,6 +41,7 @@
     </div>
 
     <div class="actions">
+      <button class="rehearse-btn" id="btn-rehearse" title="Rehearse against a target time"><svg><use href="#i-timer"/></svg><span>Rehearse</span></button>
       <div class="status-pill" id="status-pill">
         <span class="dot"></span>
         <span id="status-text">Paused</span>
@@ -70,7 +72,14 @@
 
     <main class="doc">
       <div class="doc-head">
-        <h1 id="script-name" title="Double-click to rename">Script</h1>
+        <div class="title-row">
+          <h1 id="script-name" title="Double-click to rename">Script</h1>
+          <div class="segmented two" id="view-switch" role="radiogroup" aria-label="Editor view">
+            <button data-view="text" role="radio">Text</button>
+            <button data-view="slides" role="radio">Slides</button>
+            <span class="thumb"></span>
+          </div>
+        </div>
         <div class="doc-meta"><span class="hint">Ctrl+click a sentence to jump there</span><span class="sep">·</span><span id="wordcount">0 words</span><span class="sep">·</span><span id="duration">0:00</span></div>
       </div>
       <div class="linked" id="linked" hidden>
@@ -81,6 +90,15 @@
       <div class="paper">
         <div class="backdrop" id="backdrop" aria-hidden="true"></div>
         <textarea id="script" spellcheck="true" placeholder="Paste your script. A blank line starts a new paragraph, and [brackets] mark a cue."></textarea>
+      </div>
+      <div class="builder">
+        <div class="slides" id="slides"></div>
+        <div class="slides-foot">
+          <span id="slides-total"></span>
+          <span class="spacer"></span>
+          <button class="pill-btn quiet" id="btn-renumber" title="Number the slides 1, 2, 3…">Renumber</button>
+          <button class="pill-btn" id="btn-add-slide">Add slide</button>
+        </div>
       </div>
       <div class="progress" aria-hidden="true"><i id="progress"></i></div>
     </main>
@@ -155,6 +173,7 @@
             <div><b id="stat-best">–</b><span>Best</span></div>
             <div><b id="stat-avg">–</b><span>Average</span></div>
           </div>
+          <div class="cell trend" id="trend" hidden></div>
           <ol class="runs" id="runs"></ol>
         </div>
         <p class="foot" id="runs-foot">Every time you play the script through, the time per section is saved here. Planned times come from labels like [Slide 3 · Why now · 0:30].</p>
@@ -190,6 +209,10 @@
               <label class="well" title="Cue colour"><input type="color" data-key="cueColor" /><span>Cues</span></label>
             </span>
           </div>
+          <label class="cell row">
+            <span class="lbl">Current slide at the top</span>
+            <span class="switch"><input type="checkbox" data-key="showSlide" /><i></i></span>
+          </label>
           <label class="cell row">
             <span class="lbl">Mirror text</span>
             <span class="switch"><input type="checkbox" data-key="mirror" /><i></i></span>
@@ -243,8 +266,42 @@
     </div>
   </div>
 
+  <div class="sheet-backdrop" id="rehearse" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="rehearse-title">
+      <h2 id="rehearse-title">Rehearse</h2>
+      <div class="sheet-body">
+        <p>Present with the teleprompter the way you will on the day. OnTop follows your script, times each slide and tells you at the end how you did against your target.</p>
+        <label class="field">
+          <span>Target length</span>
+          <input id="rh-target" type="text" inputmode="numeric" placeholder="10:00" autocomplete="off" />
+          <small id="rh-estimate"></small>
+        </label>
+
+      </div>
+      <div class="sheet-foot">
+        <button class="sheet-btn" id="rh-cancel">Cancel</button>
+        <span class="spacer"></span>
+        <button class="sheet-btn primary" id="rh-start">Start rehearsal</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet-backdrop" id="results" hidden>
+    <div class="sheet wide" role="dialog" aria-modal="true" aria-labelledby="results-title">
+      <h2 id="results-title">Rehearsal</h2>
+      <div class="sheet-body" id="results-body"></div>
+      <div class="sheet-foot">
+        <button class="sheet-btn" id="res-close">Done</button>
+        <span class="spacer"></span>
+        <button class="sheet-btn primary" id="res-again">Rehearse again</button>
+      </div>
+    </div>
+  </div>
+
   <script src="script.js"></script>
   <script src="editor.js"></script>
   <script src="voice-setup.js"></script>
+  <script src="rehearse.js"></script>
+  <script src="builder.js"></script>
 </body>
 </html>

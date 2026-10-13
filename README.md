@@ -27,6 +27,10 @@ Everything runs on your computer. Speech recognition is offline and no audio lea
 - **Stays out of the way.** The overlay is always on top, click-through when locked, and the text you have already read fades back.
 - **Three modes.** *Words* follows your speech. *Voice* scrolls at your pace while you talk. *Steady* scrolls at a fixed speed.
 - **Script library.** Keep several scripts. Import Markdown or text files; imported notes stay linked and update live when you edit the file (works well with Obsidian).
+- **Build it slide by slide.** Switch the editor to *Slides* and write each slide as a card: title, what to say, how long it should take. OnTop works out the planned times and shows how long each slide takes to say.
+- **Rehearse.** Press *Rehearse*, set a target length, present with the teleprompter. At the end you see your total against the target, which slides ran long or short, how you compare with last time, and a trend across rehearsals.
+- **Always know where you are.** The current slide stays pinned at the top of the prompter, for example SLIDE 5 · PRIORITISATION.
+- **Acronyms just work.** Short acronyms you spell out, like ICP or CSA, are recognised letter by letter.
 - **Sections and timing.** A heading like `## Slide 3, Results (1:30)` becomes a section you can jump to, with a planned start time. While you rehearse, OnTop shows whether you are ahead or behind plan, and keeps the time of every run.
 <p align="center">
   <img src="docs/editor.png" width="800" alt="The OnTop editor: script library, sections with ahead/behind times, the current sentence highlighted, what the app heard, and rehearsal history">
@@ -107,6 +111,8 @@ npm start
 | `npm test` | Unit tests: tracker, Markdown importer, Portuguese and Spanish, Voice setup |
 | `npm run test:track` | Plays `test/speech.wav` into the app and checks the tracker follows it (make the WAV with `powershell -File test/make-speech.ps1`) |
 | `npm run test:library` | Links a temporary note, edits it, checks the script updates |
+| `npm run test:rehearse` | Two timed rehearsals of the sample talk, checks the results and the trend |
+| `npm run test:builder` | Edits the sample script in the slide builder and checks the script it writes |
 | `npm run test:setup` | Runs Voice setup end to end on recorded phrases and checks what it learns |
 | `npm run smoke` | Opens both windows and writes screenshots to `smoke/` |
 | `npm run dist` | Builds the Windows installer into `dist/` (`npm run dist:mac` on a Mac) |

@@ -58,6 +58,8 @@ function render() {
   textEl.innerHTML = html;
   wordEls = [...textEl.querySelectorAll('.w')];
   readUpTo = -1;
+  sections = S.sections(script);
+  headPara = -2;
   tracker = new window.OnTopTracker(script, settings.language || 'en', learnedAliases());
   coast.words = 0;
   ensureRecognizer();
@@ -158,6 +160,11 @@ function loadModel() {
 // recognised drops from ~250 ms to ~100 ms, and script words are recognised more reliably.
 function scriptGrammar() {
   const vocab = new Set(tracker ? tracker.units.map((u) => u.u) : []);
+  // Spelled-out acronyms: also listen for the letter names ("see", "pee") of those letters.
+  if (tracker) {
+    const names = S.letterNames((settings && settings.language) || 'en');
+    for (const u of [...vocab]) if (u.length === 1 && names[u]) names[u].forEach((n) => vocab.add(n));
+  }
   return JSON.stringify([...vocab, '[unk]']);
 }
 
@@ -453,6 +460,7 @@ function updateHud(speaking, now) {
   const waiting = playing && speaking === false;
   dot.className = playing ? (waiting ? 'waiting' : 'playing') : '';
   $('hud-text').textContent = label;
+  updateSlideHead(currentParagraph());
   if (DEMO && speech.heard) $('caption-text').textContent = speech.heard;
   drawBars();
   const progress = mode === 'track' && tracker && wordEls.length
@@ -490,6 +498,31 @@ function drawBars() {
     const wobble = 0.75 + 0.25 * Math.sin(t + i * 1.7);
     bars[i].style.height = 3 + 9 * loud * BAR_SHAPE[i] * wobble + 'px';
   }
+}
+
+// Current slide header: "SLIDE 5 · PRIORITISATION", updated when you reach a new section.
+let sections = [];
+let rehearsal = null;
+let headPara = -2;
+function updateSlideHead(para) {
+  const show = settings.showSlide !== false && sections.length > 0;
+  document.body.classList.toggle('has-slide-head', show);
+  $('slide-head').hidden = !show;
+  if (!show) return;
+  let cur = null;
+  for (const s of sections) if (s.para <= para) cur = s;
+  const key = cur ? cur.para : -1;
+  if (key === headPara) return;
+  headPara = key;
+  const s = cur || sections[0];
+  const label = s.label && s.label !== s.title ? s.label : '';
+  $('slide-label').textContent = label;
+  $('slide-label').hidden = !label;
+  $('slide-title').textContent = s.title;
+  const head = $('slide-head');
+  head.classList.remove('change');
+  void head.offsetWidth; // restart the animation
+  head.classList.add('change');
 }
 
 // Index of the paragraph currently on the reading line.
@@ -571,7 +604,7 @@ window.ontop.on('timer', (t) => {
   clockEl.hidden = !t.running;
   deltaEl.hidden = !t.running || t.delta === null || t.delta === undefined;
   if (!t.running) return;
-  clockEl.textContent = S.clock(t.elapsed);
+  clockEl.textContent = S.clock(t.elapsed) + (t.target ? ' / ' + S.clock(t.target) : '');
   if (t.delta !== null && t.delta !== undefined) {
     const d = Math.round(t.delta);
     deltaEl.textContent = (d > 0 ? '+' : d < 0 ? '−' : '±') + S.clock(Math.abs(d));
@@ -584,7 +617,9 @@ window.ontop.on('state', (s) => {
   const prevMode = settings && settings.mode;
   const prevLang = settings ? settings.language : undefined;
   const prevAliases = settings ? JSON.stringify(learnedAliases()) : null;
-  settings = s.settings;
+  rehearsal = s.rehearsal || null;
+  // During a rehearsal OnTop follows your speech so each slide is timed when you reach it.
+  settings = rehearsal ? { ...s.settings, mode: 'track' } : s.settings;
   script = s.script;
   applySettings();
   const langChanged = prevLang !== undefined && prevLang !== settings.language;

@@ -17,14 +17,16 @@
     const useGrammar = q.get('grammar') === '1';
     const model = await Vosk.createModel('ontop://app/models/' + (q.get('model') || 'en-us.tar.gz'), -1);
     console.log('MODEL_LOADED ms=' + Math.round(performance.now() - t0));
-    const buf = await (await fetch('ontop://app/test/speech.wav')).arrayBuffer();
+    const buf = await (await fetch('ontop://app/test/' + (q.get('wav') || 'speech.wav'))).arrayBuffer();
     const ctx = new AudioContext({ sampleRate: 16000 });
     const data = (await ctx.decodeAudioData(buf)).getChannelData(0);
 
     let grammar;
     if (useGrammar) {
-      const script = await (await fetch('ontop://app/test/fixture-script.txt')).text();
+      const script = await (await fetch('ontop://app/test/' + (q.get('script') || 'fixture-script.txt'))).text();
       const vocab = [...new Set(OnTopScript.units(script, 'en').map((u) => u.u))];
+      const names = OnTopScript.letterNames('en');
+      for (const u of [...vocab]) if (u.length === 1 && names[u]) vocab.push(...names[u]);
       grammar = JSON.stringify([...vocab, '[unk]']);
     }
     const rec = grammar ? new model.KaldiRecognizer(16000, grammar) : new model.KaldiRecognizer(16000);

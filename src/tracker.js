@@ -30,8 +30,10 @@
     return prev[n];
   }
 
-  // Match score between a heard word and a script word.
-  function sim(h, s) {
+  // Match score between a heard word and a script word. `letterOf` maps letter names to
+  // letters ("see" -> "c"), so a spelled-out acronym (ICP = i c p) matches "i see pee".
+  function sim(h, s, letterOf) {
+    if (s.length === 1 && /[a-z]/.test(s) && letterOf && letterOf[h] === s) return 1.5;
     if (h === s) return s.length <= 2 ? 1 : 2;
     if (h.length <= 2 || s.length <= 2) return -1;
     const r = 1 - lev(h, s) / Math.max(h.length, s.length);
@@ -43,6 +45,8 @@
   class Tracker {
     constructor(text, lang = 'en', aliases = {}) {
       this.units = S.units(text, lang, aliases);
+      this.letterOf = {};
+      for (const [letter, names] of Object.entries(S.letterNames(lang))) for (const n of names) this.letterOf[n] = letter;
       this.cursor = -1;      // index of the last matched unit
       this.final = [];       // recent finalised words
       this.partial = [];     // words of the utterance in progress
@@ -109,7 +113,7 @@
       for (let a = 1; a <= k; a++) {
         const cur = new Array(len + 1).fill(0);
         for (let b = 1; b <= len; b++) {
-          const s = sim(tail[a - 1], seg[b - 1]);
+          const s = sim(tail[a - 1], seg[b - 1], this.letterOf);
           const diag = prev[b - 1] + s;
           cur[b] = Math.max(0, diag, prev[b] - GAP, cur[b - 1] - GAP);
           if (b === len && s > 0 && diag > 0) {
