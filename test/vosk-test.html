@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>vosk test</title></head>
+<body>
+<script src="../vendor/vosk.js"></script>
+<script>
+// Feasibility test: load the model through the ontop:// protocol, feed a WAV, print what it hears.
+(async () => {
+  const t0 = performance.now();
+  try {
+    const model = await Vosk.createModel('ontop://app/models/en-us.tar.gz');
+    console.log('MODEL_LOADED ms=' + Math.round(performance.now() - t0));
+    const buf = await (await fetch('ontop://app/test/speech.wav')).arrayBuffer();
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    const audio = await ctx.decodeAudioData(buf);
+    const data = audio.getChannelData(0);
+    const rec = new model.KaldiRecognizer(16000);
+    let partials = 0;
+    let lastPartial = '';
+    rec.on('partialresult', (m) => { if (m.result.partial) { partials++; if (partials % 10 === 0) console.log('PARTIAL ' + m.result.partial); } });
+    rec.on('result', (m) => console.log('RESULT ' + m.result.text));
+    const chunk = 1600; // 100 ms
+    for (let i = 0; i < data.length; i += chunk) {
+      rec.acceptWaveformFloat(data.slice(i, i + chunk), 16000);
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    rec.retrieveFinalResult();
+    await new Promise((r) => setTimeout(r, 15000));
+    console.log('PARTIALS ' + partials);
+    console.log('DONE');
+  } catch (e) {
+    console.log('ERROR ' + (e && e.stack || e));
+    console.log('DONE');
+  }
+})();
+</script>
+</body>
+</html>

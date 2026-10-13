@@ -1,0 +1,70 @@
+{
+  "name": "ontop",
+  "productName": "OnTop",
+  "version": "1.0.0",
+  "description": "A teleprompter that sits under your webcam, follows the words you say, and is invisible to screen sharing.",
+  "main": "src/main.js",
+  "author": "JRF",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/tracker.test.js && node test/markdown.test.js",
+    "fetch-model": "node scripts/fetch-model.js",
+    "smoke": "electron . --smoke",
+    "test:track": "electron . --track-test",
+    "test:library": "electron . --library-test",
+    "selftest": "electron . --selftest",
+    "dist": "npm run fetch-model && npm test && electron-builder --win"
+  },
+  "dependencies": {
+    "vosk-browser": "^0.0.8"
+  },
+  "devDependencies": {
+    "electron": "^37.10.3",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "app.ontop.teleprompter",
+    "productName": "OnTop",
+    "copyright": "Copyright © 2026 JRF",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.ico",
+      "package.json",
+      "node_modules/vosk-browser/dist/vosk.js",
+      "node_modules/vosk-browser/package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "models",
+        "to": "models",
+        "filter": [
+          "*.tar.gz"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OnTop",
+      "artifactName": "OnTop-Setup-${version}.exe"
+    }
+  }
+}

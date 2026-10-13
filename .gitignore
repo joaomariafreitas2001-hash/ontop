@@ -1,0 +1,7 @@
+node_modules/
+dist/
+models/
+smoke/
+test/*.wav
+# personal working notes, not part of the app
+AUDIT.md

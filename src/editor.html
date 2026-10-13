@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>OnTop</title>
+  <link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.6v12.8c0 .8.9 1.3 1.6.9l10-6.4c.6-.4.6-1.3 0-1.7l-10-6.4C8.9 4.3 8 4.8 8 5.6z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.3" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1.3" fill="currentColor"/></symbol>
+    <symbol id="i-start" viewBox="0 0 24 24"><path d="M6 5.5v13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 6.4v11.2c0 .7-.8 1.2-1.4.8l-8.6-5.6a1 1 0 0 1 0-1.6l8.6-5.6c.6-.4 1.4 0 1.4.8z" fill="currentColor"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M12 5a7 7 0 1 1-6.7 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M12 2.2v5.6L8.4 5z" fill="currentColor"/></symbol>
+    <symbol id="i-fwd" viewBox="0 0 24 24"><path d="M12 5a7 7 0 1 0 6.7 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M12 2.2v5.6L15.6 5z" fill="currentColor"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.6" fill="currentColor"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5" fill="none" stroke="currentColor" stroke-width="1.9"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.6" fill="currentColor"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.4-1.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 20 20 4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="i-center" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="8" y="7.5" width="8" height="3" rx="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15v2.5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5V15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3.5h6.5L18 8v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5a1.5 1.5 0 0 1 1-1.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13 3.5V8h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-logo" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="16" rx="4.5" fill="currentColor"/><path d="M7 9.5h10M7 12.5h7.5M7 15.5h9" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".95"/></symbol>
+  </svg>
+
+  <header class="toolbar">
+    <div class="brand">
+      <svg class="logo"><use href="#i-logo"/></svg>
+      <span>OnTop</span>
+    </div>
+
+    <div class="transport" role="group" aria-label="Playback">
+      <button class="tbtn" id="btn-reset" title="Back to start  (Ctrl+Alt+Home)"><svg><use href="#i-start"/></svg></button>
+      <button class="tbtn" id="btn-back" title="Back two lines  (Ctrl+Alt+←)"><svg><use href="#i-back"/></svg></button>
+      <button class="play" id="btn-play" title="Play / pause  (Ctrl+Alt+P)"><svg><use href="#i-play"/></svg></button>
+      <button class="tbtn" id="btn-forward" title="Forward two lines  (Ctrl+Alt+→)"><svg><use href="#i-fwd"/></svg></button>
+    </div>
+
+    <div class="actions">
+      <div class="status-pill" id="status-pill">
+        <span class="dot"></span>
+        <span id="status-text">Paused</span>
+        <span class="sep">·</span>
+        <span id="time-left">0:00</span>
+      </div>
+      <button class="tbtn" id="btn-lock" title="Click-through on/off  (Ctrl+Alt+L)"><svg><use href="#i-unlock"/></svg></button>
+      <button class="tbtn" id="btn-visible" title="Show / hide overlay  (Ctrl+Alt+H)"><svg><use href="#i-eye"/></svg></button>
+      <button class="tbtn" id="btn-center" title="Move overlay under the camera"><svg><use href="#i-center"/></svg></button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="side-head">
+        <div class="side-title">Scripts</div>
+        <div class="side-actions">
+          <button class="mini" id="btn-import" title="Import Markdown or text files (they stay linked and update live)"><svg><use href="#i-import"/></svg></button>
+          <button class="mini" id="btn-new" title="New script"><svg><use href="#i-plus"/></svg></button>
+        </div>
+      </div>
+      <ul id="scripts"></ul>
+
+      <div class="side-title sections-title">Sections</div>
+      <ol id="sections"></ol>
+      <p class="side-empty" id="sections-empty">Start a paragraph with a line like <code>[Slide 1 · Title · 0:00]</code> to create a section you can jump to.</p>
+    </nav>
+
+    <main class="doc">
+      <div class="doc-head">
+        <h1 id="script-name" title="Double-click to rename">Script</h1>
+        <div class="doc-meta"><span class="hint">Ctrl+click a sentence to jump there</span><span class="sep">·</span><span id="wordcount">0 words</span><span class="sep">·</span><span id="duration">0:00</span></div>
+      </div>
+      <div class="linked" id="linked" hidden>
+        <svg><use href="#i-link"/></svg>
+        <span>Linked to <b id="linked-file"></b>. Edit the file and this updates live.</span>
+        <button class="pill-btn" id="btn-unlink">Unlink to edit here</button>
+      </div>
+      <div class="paper">
+        <div class="backdrop" id="backdrop" aria-hidden="true"></div>
+        <textarea id="script" spellcheck="true" placeholder="Paste your script. A blank line starts a new paragraph, and [brackets] mark a cue."></textarea>
+      </div>
+      <div class="progress" aria-hidden="true"><i id="progress"></i></div>
+    </main>
+
+    <aside class="inspector">
+      <section class="group">
+        <h2>Playback</h2>
+        <div class="card">
+          <div class="cell">
+            <div class="segmented three" id="mode" role="radiogroup">
+              <button data-mode="track" role="radio" title="Follows the words you say">Words</button>
+              <button data-mode="voice" role="radio" title="Scrolls at your speed while you talk">Voice</button>
+              <button data-mode="classic" role="radio" title="Scrolls at a constant speed">Steady</button>
+              <span class="thumb"></span>
+            </div>
+          </div>
+          <div class="cell track-only heard">
+            <div class="heard-head">
+              <span class="lbl"><svg class="mic-glyph"><use href="#i-mic"/></svg>Heard</span>
+              <span class="model-state" id="model-state"></span>
+            </div>
+            <p id="heard-text" class="heard-text">Press play and start reading.</p>
+          </div>
+          <label class="cell slider not-track">
+            <span class="lbl">Speed</span><output data-for="wpm"></output>
+            <input type="range" data-key="wpm" min="40" max="400" step="5" />
+          </label>
+          <div class="voice-only">
+            <label class="cell slider">
+              <span class="lbl">Voice threshold</span><output data-for="micThreshold"></output>
+              <div class="meter-wrap">
+                <div class="meter"><i id="mic-level"></i></div>
+                <input type="range" data-key="micThreshold" min="0.003" max="0.08" step="0.001" />
+              </div>
+            </label>
+            <div class="cell row">
+              <span class="lbl">Set from room noise</span>
+              <button class="pill-btn" id="btn-calibrate">Calibrate</button>
+            </div>
+            <label class="cell slider">
+              <span class="lbl">Hold after pause</span><output data-for="micHangMs"></output>
+              <input type="range" data-key="micHangMs" min="100" max="1500" step="50" />
+            </label>
+          </div>
+        </div>
+        <p class="foot" id="mic-state"></p>
+      </section>
+
+      <section class="group">
+        <div class="group-head">
+          <h2>Rehearsals</h2>
+          <button class="link-btn" id="btn-clear-runs" hidden>Clear</button>
+        </div>
+        <div class="card">
+          <div class="cell stats" id="run-stats">
+            <div><b id="stat-last">–</b><span>Last</span></div>
+            <div><b id="stat-best">–</b><span>Best</span></div>
+            <div><b id="stat-avg">–</b><span>Average</span></div>
+          </div>
+          <ol class="runs" id="runs"></ol>
+        </div>
+        <p class="foot" id="runs-foot">Every time you play the script through, the time per section is saved here. Planned times come from labels like [Slide 3 · Why now · 0:30].</p>
+      </section>
+
+      <section class="group">
+        <h2>Appearance</h2>
+        <div class="card">
+          <label class="cell slider">
+            <span class="lbl">Text size</span><output data-for="fontSize"></output>
+            <input type="range" data-key="fontSize" min="14" max="72" step="1" />
+          </label>
+          <label class="cell slider">
+            <span class="lbl">Line spacing</span><output data-for="lineHeight"></output>
+            <input type="range" data-key="lineHeight" min="1" max="2" step="0.05" />
+          </label>
+          <label class="cell slider">
+            <span class="lbl">Paragraph gap</span><output data-for="paraGap"></output>
+            <input type="range" data-key="paraGap" min="0" max="1" step="0.05" />
+          </label>
+          <label class="cell slider">
+            <span class="lbl">Background</span><output data-for="bgOpacity"></output>
+            <input type="range" data-key="bgOpacity" min="0" max="1" step="0.05" />
+          </label>
+          <label class="cell slider">
+            <span class="lbl">Reading line</span><output data-for="readingLine"></output>
+            <input type="range" data-key="readingLine" min="0.1" max="0.8" step="0.05" />
+          </label>
+          <div class="cell row">
+            <span class="lbl">Colours</span>
+            <span class="wells">
+              <label class="well" title="Text colour"><input type="color" data-key="textColor" /><span>Text</span></label>
+              <label class="well" title="Cue colour"><input type="color" data-key="cueColor" /><span>Cues</span></label>
+            </span>
+          </div>
+          <label class="cell row">
+            <span class="lbl">Mirror text</span>
+            <span class="switch"><input type="checkbox" data-key="mirror" /><i></i></span>
+          </label>
+        </div>
+      </section>
+
+      <section class="group">
+        <h2>Privacy</h2>
+        <div class="card">
+          <label class="cell row">
+            <span class="lbl">Hide from screen share</span>
+            <span class="switch"><input type="checkbox" data-key="hideFromCapture" /><i></i></span>
+          </label>
+        </div>
+        <p class="foot">Hides both windows from Teams, Zoom, Meet and recordings. Only you see them.</p>
+      </section>
+
+      <section class="group">
+        <h2>Shortcuts</h2>
+        <div class="card">
+          <label class="cell row">
+            <span class="lbl">Number keys <kbd>1</kbd> <kbd>2</kbd></span>
+            <span class="switch"><input type="checkbox" data-key="numberKeys" /><i></i></span>
+          </label>
+        </div>
+        <p class="foot">1 moves up a line and 2 moves down a line, from any app. While this is on, other apps can't receive 1 and 2, so turn it off when you need to type numbers.</p>
+        <div class="card keys" style="margin-top:12px">
+          <div class="cell row"><span class="lbl">Play / pause</span><span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>P</kbd></span></div>
+          <div class="cell row"><span class="lbl">Faster / slower</span><span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>↑</kbd><kbd>↓</kbd></span></div>
+          <div class="cell row"><span class="lbl">Back / forward</span><span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>←</kbd><kbd>→</kbd></span></div>
+          <div class="cell row"><span class="lbl">To start</span><span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Home</kbd></span></div>
+          <div class="cell row"><span class="lbl">Click-through</span><span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>L</kbd></span></div>
+          <div class="cell row"><span class="lbl">Hide overlay</span><span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>H</kbd></span></div>
+        </div>
+        <p class="foot warn" id="hotkey-errors"></p>
+      </section>
+    </aside>
+  </div>
+  <script src="script.js"></script>
+  <script src="editor.js"></script>
+</body>
+</html>

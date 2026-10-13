@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; style-src 'self' 'unsafe-inline'" />
+  <title>OnTop overlay</title>
+  <link rel="stylesheet" href="overlay.css" />
+</head>
+<body>
+  <div id="frame">
+    <div id="dragbar" title="Drag to move · resize from the edges · Ctrl+Alt+L to lock"><span class="grabber"></span></div>
+    <div id="viewport">
+      <div id="text"></div>
+    </div>
+    <div id="marker"></div>
+    <div id="hud">
+      <span id="bars"><i></i><i></i><i></i><i></i><i></i></span>
+      <span id="state-dot"></span>
+      <span id="hud-text"></span>
+      <span id="clock" hidden></span>
+      <span id="delta" hidden></span>
+    </div>
+    <div id="progress"><i></i></div>
+  </div>
+  <script src="../vendor/vosk.js"></script>
+  <script src="script.js"></script>
+  <script src="tracker.js"></script>
+  <script src="overlay.js"></script>
+</body>
+</html>
