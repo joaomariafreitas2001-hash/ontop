@@ -10,6 +10,14 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/joaomariafreitas2001-hash/ontop/releases/latest/download/OnTop-Setup.exe"><img src="https://img.shields.io/badge/Download%20for%20Windows-0A84FF?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="40"></a>
+  &nbsp;
+  <a href="https://github.com/joaomariafreitas2001-hash/ontop/releases/latest"><img src="https://img.shields.io/badge/Download%20for%20macOS-1d1d1f?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" height="40"></a>
+  <br>
+  <sub>Free · Windows 10 / 11 · macOS (experimental) · <a href="#install">install notes</a></sub>
+</p>
+
+<p align="center">
   <img src="docs/demo.gif" width="720" alt="OnTop following a spoken talk: the line being read stays under the camera, read text fades, and the caption shows what it hears">
 </p>
 

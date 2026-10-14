@@ -79,4 +79,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" dist/OnTop-Setup-*.exe --clobber
+        # Also as OnTop-Setup.exe: the README's Download button links to that fixed name.
+        run: |
+          cp dist/OnTop-Setup-*.exe dist/OnTop-Setup.exe
+          gh release upload "$TAG" dist/OnTop-Setup-*.exe dist/OnTop-Setup.exe --clobber
